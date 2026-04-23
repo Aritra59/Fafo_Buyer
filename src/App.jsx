@@ -5,7 +5,6 @@ import { CartProvider } from "./context/CartContext";
 import { RequireAuth, RequireProfile } from "./components/ProtectedRoute";
 import LoginPage from "./pages/Auth/LoginPage";
 import OnboardingPage from "./pages/Onboarding/OnboardingPage";
-import HomePage from "./pages/Home/HomePage";
 import ShopsPage from "./pages/Shops/ShopsPage";
 import ShopDetailsPage from "./pages/ShopDetails/ShopDetailsPage";
 import CartPage from "./pages/Cart/CartPage";
@@ -16,6 +15,8 @@ import PublicShopPage from "./pages/Public/PublicShopPage";
 import OrderThanksPage from "./pages/Public/OrderThanksPage";
 import OrderTrackPage from "./pages/Public/OrderTrackPage";
 import GuestDashboardPage from "./pages/Public/GuestDashboardPage";
+import ExplorePage from "./pages/Home/ExplorePage";
+import TrackLookupPage from "./pages/Public/TrackLookupPage";
 
 export default function App() {
   return (
@@ -32,12 +33,13 @@ export default function App() {
               <Route path="/order-success" element={<Navigate to="/order/thanks" replace />} />
               <Route path="/order/:orderId/track" element={<OrderTrackPage />} />
               <Route path="/dashboard" element={<GuestDashboardPage />} />
+              <Route path="/explore" element={<ExplorePage />} />
+              <Route path="/track" element={<TrackLookupPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route element={<RequireAuth />}>
                 <Route path="onboarding" element={<OnboardingPage />} />
               </Route>
               <Route element={<RequireProfile />}>
-                <Route path="explore" element={<HomePage />} />
                 <Route path="shops" element={<ShopsPage />} />
                 <Route path="shops/:sellerId" element={<ShopDetailsPage />} />
                 <Route path="orders" element={<OrdersPage />} />

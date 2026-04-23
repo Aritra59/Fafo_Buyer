@@ -18,6 +18,8 @@ import {
   setGuestProfile,
 } from "../../utils/guestProfile";
 import { buildUpiPayUri, copyToClipboard, tryOpenUpiUri } from "../../utils/upi";
+import { sellerAcceptsUpi, sellerAcceptsCod } from "../../utils/sellerPay";
+import { openWhatsAppOrder } from "../../utils/whatsapp";
 import { getShopOpenUiState } from "../../utils/shopOpenStatus";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -84,11 +86,15 @@ export default function CartPage() {
   const [checkoutName, setCheckoutName] = useState("");
   const [checkoutPhone, setCheckoutPhone] = useState("");
   const [checkoutAddress, setCheckoutAddress] = useState("");
+  const [checkoutLandmark, setCheckoutLandmark] = useState("");
   const [shopOpenUi, setShopOpenUi] = useState("unknown");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [deliveryOn, setDeliveryOn] = useState(false);
+  const [liveSeller, setLiveSeller] = useState(/** @type {Record<string, unknown> | null} */(null));
   const canCheckout = shopOpenUi === "open";
   const isGuest = !user;
+  const canUpi = liveSeller && sellerAcceptsUpi(/** @type {any} */(liveSeller));
+  const canCod = liveSeller == null || sellerAcceptsCod(/** @type {any} */(liveSeller));
 
   const continueShoppingTo = useMemo(() => shopPathForSeller(sellerId), [sellerId]);
 
@@ -108,6 +114,7 @@ export default function CartPage() {
         setCheckoutPhone("");
       }
       setCheckoutAddress("");
+      setCheckoutLandmark("");
     }
   }, [profile, user]);
 
@@ -122,18 +129,32 @@ export default function CartPage() {
         if (!docSnap) {
           setShopOpenUi("unknown");
           setDeliveryOn(false);
+          setLiveSeller(null);
           return;
         }
+        setLiveSeller(/** @type {Record<string, unknown>} */({ ...docSnap }));
         setShopOpenUi(getShopOpenUiState(docSnap));
         setDeliveryOn(docSnap.deliveryEnabled === true);
       },
       () => {
         setShopOpenUi("unknown");
         setDeliveryOn(false);
+        setLiveSeller(null);
       }
     );
     return () => unsub();
   }, [sellerId]);
+
+  useEffect(() => {
+    if (!liveSeller) return;
+    if (sellerAcceptsUpi(/** @type {any} */(liveSeller)) && !sellerAcceptsCod(/** @type {any} */(liveSeller))) {
+      setPaymentMode("upi");
+    } else if (!sellerAcceptsUpi(/** @type {any} */(liveSeller)) && sellerAcceptsCod(/** @type {any} */(liveSeller))) {
+      setPaymentMode("cod");
+    } else if (!sellerAcceptsUpi(/** @type {any} */(liveSeller))) {
+      setPaymentMode("cod");
+    }
+  }, [liveSeller]);
 
   async function handlePlaceOrder() {
     if (sending) return;
@@ -155,6 +176,7 @@ export default function CartPage() {
     const name = checkoutName.trim();
     const phone = checkoutPhone.trim();
     const addr = checkoutAddress.trim();
+    const landmark = checkoutLandmark.trim();
     const isGuestUser = !user;
 
     if (!name || !phone) {
@@ -209,6 +231,10 @@ export default function CartPage() {
           : "/";
 
       if (paymentMode === "upi") {
+        if (!sellerAcceptsUpi(seller)) {
+          setError("This shop is not accepting UPI for this order. Use cash on delivery or contact the shop.");
+          return;
+        }
         if (!upiId) {
           setError("This shop has no UPI on file. Pay with COD or contact the seller.");
           return;
@@ -226,14 +252,17 @@ export default function CartPage() {
         setGuestProfile({ name, phone: buyerPhoneE164 });
       }
 
+      const baseAddr = isGuestUser
+        ? addr || (deliveryEnabled ? "Delivery (confirm with shop)" : "Pickup at shop")
+        : addr;
+
       const orderId = await createOrder({
         sellerId,
         buyerId: user?.uid || "",
         buyerPhone: buyerPhoneE164,
         buyerName: name,
-        buyerAddress: isGuestUser
-          ? addr || (deliveryEnabled ? "Delivery (confirm with shop)" : "Pickup at shop")
-          : addr,
+        buyerAddress: baseAddr,
+        buyerLandmark: landmark,
         buyerGuest: isGuestUser,
         sellerName: sellerNameOut,
         sellerPhone: String(sellerPhoneRaw || ""),
@@ -255,7 +284,10 @@ export default function CartPage() {
           buyerPhone: buyerPhoneE164,
           deliveryEnabled: deliveryOn,
           returnShopPath,
-          redirectDashboard: true,
+          redirectExplore: true,
+          orderTotal: priced.total,
+          paymentMode,
+          sellerPhone: String(sellerPhoneRaw || ""),
         },
         replace: false,
       });
@@ -287,16 +319,17 @@ export default function CartPage() {
   }
 
   return (
-    <div className="nb-page nb-page--browse bs-cart">
-      <header className="bs-cart__header">
-        <Link className="nb-back" to="/">
-          ← Home
-        </Link>
-        <h1 className="bs-cart__title">Your cart</h1>
-        <p className="bs-cart__desc">Review items, then check out in one tap.</p>
-      </header>
+    <div className="nb-page nb-page--browse bs-cart-page">
+      <div className="bs-cart__scroll">
+        <header className="bs-cart__header">
+          <Link className="nb-back" to="/">
+            ← Home
+          </Link>
+          <h1 className="bs-cart__title">Your cart</h1>
+          <p className="bs-cart__desc">Review items, then check out in one tap.</p>
+        </header>
 
-      {error && lines.length > 0 && !checkoutOpen ? <p className="nb-field__error">{error}</p> : null}
+        {error && lines.length > 0 && !checkoutOpen ? <p className="nb-field__error">{error}</p> : null}
 
       {lines.length === 0 ? null : !canCheckout ? (
         <p className="nb-field__error">
@@ -390,7 +423,12 @@ export default function CartPage() {
               );
             })}
           </ul>
+        </>
+      ) : null}
+      </div>
 
+      {lines.length > 0 ? (
+        <div className="bs-cart__dock" role="region" aria-label="Order summary">
           <div className="bs-cart__summary">
             {savings > 0 ? (
               <>
@@ -400,12 +438,12 @@ export default function CartPage() {
                 </div>
                 <div className="bs-cart__summary-row">
                   <span style={{ color: "var(--nb-text-muted)" }}>You save</span>
-                  <span style={{ color: "#4ade80" }}>−{formatCurrencyInr(savings)}</span>
+                  <span style={{ color: "var(--nb-success, #22c55e)" }}>−{formatCurrencyInr(savings)}</span>
                 </div>
               </>
             ) : null}
             <div className="bs-cart__summary-row" style={{ fontSize: "0.85rem", color: "var(--nb-text-muted)" }}>
-              <span>Taxes & fees</span>
+              <span>Taxes &amp; fees</span>
               <span>As per shop</span>
             </div>
             <div className="bs-cart__summary-row" style={{ fontSize: "0.85rem" }}>
@@ -418,43 +456,36 @@ export default function CartPage() {
               <span>Total</span>
               <strong>{formatCurrencyInr(total)}</strong>
             </div>
-
             <p className="bs-del-hint" style={canCheckout ? undefined : { marginBottom: 0 }}>
               {isGuest
                 ? "Name and phone are used only to confirm the order. Saved on this device when you check out."
                 : "We’ll use your account details in checkout."}
             </p>
-          </div>
-
-          <div
-            className="bs-cart__actions"
-            style={{ marginTop: "0.5rem" }}
-            role="group"
-            aria-label="Next steps"
-          >
-            <div className="bs-cart__actions--row" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-              <Button
-                type="button"
-                onClick={() => {
-                  setError("");
-                  setCheckoutOpen(true);
-                }}
-                className="nb-sticky-cart__btn"
-                style={{ width: "100%" }}
-                disabled={!canCheckout}
-              >
-                {canCheckout ? "Place order" : "Checkout closed"}
-              </Button>
-              <Link
-                to={continueShoppingTo}
-                className="nb-btn nb-btn--ghost"
-                style={{ width: "100%", textAlign: "center", display: "block" }}
-              >
-                Continue shopping
-              </Link>
+            <div className="bs-cart__actions" role="group" aria-label="Next steps">
+              <div className="bs-cart__actions--row" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setError("");
+                    setCheckoutOpen(true);
+                  }}
+                  className="nb-sticky-cart__btn"
+                  style={{ width: "100%" }}
+                  disabled={!canCheckout}
+                >
+                  {canCheckout ? "Place order" : "Checkout closed"}
+                </Button>
+                <Link
+                  to={continueShoppingTo}
+                  className="nb-btn nb-btn--ghost"
+                  style={{ width: "100%", textAlign: "center", display: "block" }}
+                >
+                  Continue shopping
+                </Link>
+              </div>
             </div>
           </div>
-        </>
+        </div>
       ) : null}
 
       {checkoutOpen && lines.length > 0 ? (
@@ -510,6 +541,14 @@ export default function CartPage() {
                 onChange={(e) => setCheckoutAddress(e.target.value)}
                 autoComplete="street-address"
               />
+              <Input
+                label="Landmark (optional)"
+                name="clandmark"
+                value={checkoutLandmark}
+                onChange={(e) => setCheckoutLandmark(e.target.value)}
+                autoComplete="off"
+                placeholder="Near metro gate, block B…"
+              />
             </div>
 
             <Card className="nb-card--neon" style={{ marginTop: "0.9rem" }}>
@@ -518,38 +557,97 @@ export default function CartPage() {
               </h3>
               <div className="nb-pay-mode" role="group" aria-label="Payment mode">
                 <span className="nb-pay-mode__label">Mode</span>
-                <label className="nb-pay-mode__opt">
-                  <input
-                    type="radio"
-                    name="pay"
-                    checked={paymentMode === "upi"}
-                    onChange={() => setPaymentMode("upi")}
-                  />
-                  UPI
-                </label>
-                <label className="nb-pay-mode__opt">
-                  <input
-                    type="radio"
-                    name="pay"
-                    checked={paymentMode === "cod"}
-                    onChange={() => setPaymentMode("cod")}
-                  />
-                  Cash on delivery
-                </label>
+                {canUpi ? (
+                  <label className="nb-pay-mode__opt">
+                    <input
+                      type="radio"
+                      name="pay"
+                      checked={paymentMode === "upi"}
+                      onChange={() => setPaymentMode("upi")}
+                    />
+                    UPI
+                  </label>
+                ) : null}
+                {canCod ? (
+                  <label className="nb-pay-mode__opt">
+                    <input
+                      type="radio"
+                      name="pay"
+                      checked={paymentMode === "cod"}
+                      onChange={() => setPaymentMode("cod")}
+                    />
+                    Cash on delivery
+                  </label>
+                ) : null}
               </div>
-              {paymentMode === "upi" ? (
+              {paymentMode === "upi" && canUpi ? (
                 <div className="nb-pay-upi-hint" style={{ marginTop: "0.5rem" }}>
                   <p className="nb-muted nb-pay-upi-hint__text">
-                    We open your UPI app with the amount. If nothing opens, copy the seller UPI ID.
+                    We open your UPI app with the order amount. If nothing opens, copy the seller UPI ID. You can
+                    send a payment screenshot to the shop from the next screen.
                   </p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="nb-btn--sm"
-                    onClick={handleCopyUpi}
-                  >
-                    Copy seller UPI ID
-                  </Button>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="nb-btn--sm"
+                      onClick={async () => {
+                        if (!sellerId) return;
+                        try {
+                          const seller = await getSellerById(sellerId);
+                          const upiId = String(seller?.upiId || seller?.upi_id || "").trim();
+                          if (!upiId) {
+                            setError("UPI ID not available for this shop.");
+                            return;
+                          }
+                          const n = String(seller?.shopName || seller?.name || "Shop");
+                          const uri = buildUpiPayUri({
+                            pa: upiId,
+                            pn: String(seller?.upiName || seller?.upi_name || n),
+                            am: total,
+                            tn: `FaFo ${n}`,
+                          });
+                          tryOpenUpiUri(uri);
+                        } catch (e) {
+                          setError(e instanceof Error ? e.message : "Could not open UPI.");
+                        }
+                      }}
+                    >
+                      Open UPI app
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="nb-btn--sm"
+                      onClick={handleCopyUpi}
+                    >
+                      Copy seller UPI ID
+                    </Button>
+                    {String(liveSeller?.phone || liveSeller?.whatsapp || "").trim() ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="nb-btn--sm"
+                        onClick={() => {
+                          setError("");
+                          const raw = String(
+                            liveSeller?.whatsapp || liveSeller?.phone || ""
+                          );
+                          const sn = String(
+                            liveSeller?.shopName || liveSeller?.name || "this shop"
+                          );
+                          const msg = `Hi, I placed order at ${sn}. Sending payment proof.`;
+                          try {
+                            openWhatsAppOrder(raw, msg);
+                          } catch (e) {
+                            setError(e instanceof Error ? e.message : "WhatsApp not available.");
+                          }
+                        }}
+                      >
+                        Send payment proof on WhatsApp
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
             </Card>
@@ -561,9 +659,9 @@ export default function CartPage() {
               <Button type="button" disabled={sending} onClick={handlePlaceOrder}>
                 {sending
                   ? "Placing…"
-                  : paymentMode === "upi"
-                    ? "Pay & place order"
-                    : "Place order (COD)"}
+                  : paymentMode === "upi" && canUpi
+                    ? "Pay via UPI & place order"
+                    : "Place order"}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setCheckoutOpen(false)}>
                 Back to cart

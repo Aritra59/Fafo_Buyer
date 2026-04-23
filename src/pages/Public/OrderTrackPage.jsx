@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { subscribeOrderById } from "../../services/orderService";
 import { Card } from "../../components/ui/Card";
@@ -7,8 +7,16 @@ import { Input } from "../../components/ui/Input";
 import { Spinner } from "../../components/ui/Spinner";
 import { normalizeIndiaPhone } from "../../utils/format";
 
+const STATUS_ORDER = [
+  { key: "new", label: "Placed" },
+  { key: "confirmed", label: "Confirmed" },
+  { key: "preparing", label: "Preparing" },
+  { key: "ready", label: "Ready" },
+  { key: "completed", label: "Completed" },
+];
+
 const STATUS_LABELS = {
-  new: "Received",
+  new: "Placed",
   confirmed: "Confirmed",
   preparing: "Preparing",
   ready: "Ready",
@@ -23,6 +31,14 @@ function phoneKey(v) {
   return String(v || "")
     .trim()
     .replace(/\D/g, "");
+}
+
+/**
+ * @param {string} st
+ */
+function statusIndex(st) {
+  const i = STATUS_ORDER.findIndex((x) => x.key === st);
+  return i >= 0 ? i : 0;
 }
 
 export default function OrderTrackPage() {
@@ -66,6 +82,15 @@ export default function OrderTrackPage() {
     return () => unsub();
   }, [orderId, paramPhone, e164]);
 
+  const timeline = useMemo(() => {
+    const st = String(order?.status || "new").toLowerCase();
+    if (st === "cancelled") {
+      return { steps: STATUS_ORDER, active: -1, cancelled: true, current: st };
+    }
+    const active = statusIndex(st);
+    return { steps: STATUS_ORDER, active, cancelled: false, current: st };
+  }, [order]);
+
   if (!orderId) {
     return (
       <div className="nb-page">
@@ -79,7 +104,7 @@ export default function OrderTrackPage() {
 
   if (!paramPhone) {
     return (
-      <div className="nb-page" style={{ maxWidth: 400, margin: "0 auto" }}>
+      <div className="nb-page nb-track" style={{ maxWidth: 420, margin: "0 auto" }}>
         <Card className="nb-card--neon">
           <h1 className="nb-page-title" style={{ fontSize: "1.15rem" }}>
             Track order
@@ -101,7 +126,7 @@ export default function OrderTrackPage() {
           />
           <Button
             type="button"
-            style={{ marginTop: "0.75rem" }}
+            style={{ marginTop: "0.75rem", width: "100%" }}
             onClick={() => {
               const p = normalizeIndiaPhone(phoneInput) || phoneInput.trim();
               if (p) {
@@ -155,18 +180,18 @@ export default function OrderTrackPage() {
   const isReady = st === "ready";
 
   return (
-    <div className="nb-page nb-page--browse" style={{ maxWidth: 480, margin: "0 auto" }}>
+    <div className="nb-page nb-page--browse nb-track" style={{ maxWidth: 420, margin: "0 auto" }}>
       {isReady ? (
         <Card
           className="nb-card--neon nb-order-ready"
           style={{
-            borderColor: "var(--nb-neon, #2ee6a6)",
+            borderColor: "rgba(34, 197, 94, 0.45)",
             marginBottom: "1rem",
-            background: "rgba(46, 230, 166, 0.08)",
+            background: "rgba(34, 197, 94, 0.1)",
           }}
         >
-          <p className="nb-order-ready__title" style={{ margin: 0, fontSize: "1.1rem" }}>
-            Pickup now — your order is ready
+          <p className="nb-order-ready__title" style={{ margin: 0, fontSize: "1.05rem", fontWeight: 700 }}>
+            Your order is ready for pickup
           </p>
         </Card>
       ) : null}
@@ -180,15 +205,42 @@ export default function OrderTrackPage() {
             <strong>{String(order.sellerName)}</strong>
           </p>
         ) : null}
-        <p className="nb-track-status" data-status={st} style={{ marginTop: "1rem" }}>
-          <span className="nb-badge nb-badge--status">{label}</span>
-        </p>
         {order.total != null ? (
-          <p className="nb-muted" style={{ marginTop: "0.75rem" }}>
+          <p className="nb-muted" style={{ marginTop: "0.4rem" }}>
             Total: ₹{Number(order.total).toFixed(0)}
           </p>
         ) : null}
-        <p className="nb-muted" style={{ marginTop: "1rem", fontSize: "0.9rem" }}>
+
+        {timeline.cancelled ? (
+          <p className="nb-field__error" style={{ marginTop: "1rem" }}>
+            This order was cancelled.
+          </p>
+        ) : (
+          <ol className="nb-timeline" aria-label="Order progress">
+            {timeline.steps.map((step, idx) => {
+              const done = idx < timeline.active;
+              const current = idx === timeline.active;
+              return (
+                <li
+                  key={step.key}
+                  className={`nb-timeline__step${done ? " nb-timeline__step--done" : ""}${
+                    current ? " nb-timeline__step--current" : ""
+                  }`}
+                >
+                  <span className="nb-timeline__dot" aria-hidden />
+                  <div className="nb-timeline__label">
+                    <span className="nb-timeline__name">{step.label}</span>
+                    {current ? (
+                      <span className="nb-timeline__now">Current · {label}</span>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+
+        <p className="nb-muted" style={{ marginTop: "1.25rem", fontSize: "0.9rem" }}>
           Updates are live. Keep this page open to see changes.
         </p>
         <Link className="nb-inline-link" to="/" style={{ marginTop: "1rem", display: "inline-block" }}>

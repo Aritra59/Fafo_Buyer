@@ -41,17 +41,19 @@ export default function GuestDashboardPage() {
         <p className="nb-page-desc">
           Track orders, reopen shops, and more — no sign-up required for guest ordering.
         </p>
-        {user && profileComplete ? (
-          <p className="nb-muted" style={{ marginTop: "0.5rem" }}>
-            <Link className="nb-inline-link" to="/explore">
-              Discovery & nearby
-            </Link>
-            {" · "}
-            <Link className="nb-inline-link" to="/profile">
-              Profile
-            </Link>
-          </p>
-        ) : null}
+        <p className="nb-muted" style={{ marginTop: "0.5rem" }}>
+          <Link className="nb-inline-link" to="/explore">
+            Explore — offers, nearby, tracking
+          </Link>
+          {user && profileComplete ? (
+            <>
+              {" · "}
+              <Link className="nb-inline-link" to="/profile">
+                Profile
+              </Link>
+            </>
+          ) : null}
+        </p>
         {!user && guest ? (
           <p className="nb-muted" style={{ marginTop: "0.5rem" }}>
             Guest: {guest.name} · {guest.phone}

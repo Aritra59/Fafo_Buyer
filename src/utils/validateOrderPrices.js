@@ -1,6 +1,7 @@
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
 import { getProductOfferMeta } from "./pricing";
+import { isComboUnavailable, isProductUnavailable } from "./menuSections";
 
 /**
  * @param {string} sellerId
@@ -28,6 +29,9 @@ export async function validateAndPriceOrderLines(sellerId, lines) {
       const c = snap.data() || {};
       if (String(c.sellerId || "") !== String(sellerId)) {
         throw new Error("Cart has items from another shop. Clear the cart and try again.");
+      }
+      if (isComboUnavailable(c)) {
+        throw new Error(`"${String(c.name || "Combo")}" is currently unavailable. Remove it from the cart.`);
       }
       const price = Number(c.price) || 0;
       const origRaw = c.originalPrice ?? c.compareAtPrice ?? c.mrp;
@@ -70,6 +74,9 @@ export async function validateAndPriceOrderLines(sellerId, lines) {
       const p = { id: snap.id, ...snap.data() };
       if (String(p.sellerId || "") !== String(sellerId)) {
         throw new Error("Cart has items from another shop. Clear the cart and try again.");
+      }
+      if (isProductUnavailable(p)) {
+        throw new Error(`"${String(p.name || "Item")}" is currently unavailable. Remove it from the cart.`);
       }
       const meta = getProductOfferMeta(p);
       const orig = Number(meta.originalPrice) || 0;

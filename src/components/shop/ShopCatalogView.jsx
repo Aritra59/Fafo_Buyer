@@ -4,26 +4,35 @@ import { subscribeProductsBySeller } from "../../services/productService";
 import { subscribeCombosBySeller } from "../../services/comboService";
 import { subscribeSellerById } from "../../services/sellerService";
 import { useCart } from "../../context/CartContext";
-import {
-  getProductOfferMeta,
-  isDiscountSectionProduct,
-} from "../../utils/pricing";
+import { getProductOfferMeta } from "../../utils/pricing";
 import { formatCurrencyInr } from "../../utils/format";
 import { formatSellerHoursDisplay } from "../../utils/shopStatus";
 import { getShopOpenUiState } from "../../utils/shopOpenStatus";
+import {
+  getMenuFilterChips,
+  getProductMenuSlot,
+  getSellerMenuSession,
+  menuSlotLabel,
+} from "../../utils/menuSections";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { LazyImage } from "../ui/LazyImage";
 import ProductCard from "./ProductCard";
 import ComboCard from "./ComboCard";
+import StorefrontAdRail from "../StorefrontAdRail";
 import "../../styles/buyerShop.css";
 
-function groupByCategory(products) {
-  const map = new Map();
-  for (const p of products) {
-    const cat = (p.category && String(p.category).trim()) || "Other";
-    if (!map.has(cat)) map.set(cat, []);
-    map.get(cat).push(p);
+const MEAL_THEN_DEALS = /** @type {const} */ (["breakfast", "lunch", "dinner", "specials", "other"]);
+
+function formatOffers(seller) {
+  if (!seller) return [];
+  const o = seller.offers ?? seller.shopOffers ?? seller.activeOffers;
+  if (Array.isArray(o)) {
+    return o
+      .map((x) => (typeof x === "string" ? x : x?.text || x?.title || ""))
+      .filter(Boolean);
   }
-  return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  if (typeof o === "string" && o.trim()) return [o.trim()];
+  return [];
 }
 
 function productMatchesQuery(p, q) {
@@ -56,17 +65,6 @@ function comboMatchesQuery(c, q) {
   return name.includes(t) || sum.includes(t);
 }
 
-function formatOffers(seller) {
-  const o = seller?.offers ?? seller?.shopOffers ?? seller?.activeOffers;
-  if (Array.isArray(o)) {
-    return o
-      .map((x) => (typeof x === "string" ? x : x?.text || x?.title || ""))
-      .filter(Boolean);
-  }
-  if (typeof o === "string" && o.trim()) return [o.trim()];
-  return [];
-}
-
 function BsProductGridSkeleton() {
   return (
     <ul className="bs-pgrid bs-pgrid--skeleton" aria-busy="true">
@@ -94,7 +92,8 @@ function BsProductGridSkeleton() {
 export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic = false }) {
   const { addItem, lines, setQty, sellerId: cartSellerId, lineCount, total } = useCart();
   const [menuSearch, setMenuSearch] = useState("");
-  const [activeChip, setActiveChip] = useState("All");
+  const debouncedSearch = useDebouncedValue(menuSearch, 320);
+  const [activeTab, setActiveTab] = useState(/** @type {string} */("all"));
   const [products, setProducts] = useState([]);
   const [combos, setCombos] = useState([]);
   const [productsLoading, setProductsLoading] = useState(true);
@@ -103,6 +102,25 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
   const [sellerErr, setSellerErr] = useState("");
   const [productErr, setProductErr] = useState("");
   const [comboErr, setComboErr] = useState("");
+
+  const menuSession = useMemo(() => getSellerMenuSession(seller), [seller]);
+  const sessionLocked = menuSession.mode === "slot" && menuSession.slot;
+
+  const filteredProducts = useMemo(() => {
+    if (menuSession.mode !== "slot" || !menuSession.slot) return products;
+    const slot = menuSession.slot;
+    if (slot === "combos") return [];
+    return products.filter((p) => {
+      const meta = getProductOfferMeta(p);
+      return getProductMenuSlot(p, meta) === slot;
+    });
+  }, [products, menuSession]);
+
+  const filteredCombos = useMemo(() => {
+    if (menuSession.mode !== "slot" || !menuSession.slot) return combos;
+    if (menuSession.slot === "combos") return combos;
+    return [];
+  }, [combos, menuSession]);
 
   const lineById = useMemo(() => {
     const m = new Map();
@@ -164,68 +182,66 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     return () => unsub();
   }, [sellerId]);
 
-  const categoryNames = useMemo(() => {
-    const s = new Set();
-    for (const p of products) {
-      s.add((p.category && String(p.category).trim()) || "Other");
+  const { buckets, otherEmpty, specialsEmpty } = useMemo(() => {
+    const q = debouncedSearch;
+    const b = {
+      breakfast: /** @type {Record<string, unknown>[]} */ ([]),
+      lunch: [],
+      dinner: [],
+      specials: [],
+      other: [],
+    };
+    for (const p of filteredProducts) {
+      if (!productMatchesQuery(p, q)) continue;
+      const meta = getProductOfferMeta(p);
+      const slot = getProductMenuSlot(p, meta);
+      b[slot].push(p);
     }
-    return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [products]);
+    return {
+      buckets: b,
+      otherEmpty: b.other.length === 0,
+      specialsEmpty: b.specials.length === 0,
+    };
+  }, [filteredProducts, debouncedSearch]);
 
   const chips = useMemo(() => {
-    const c = ["All", ...categoryNames];
-    if (combos.length) c.push("Combos");
-    return c;
-  }, [categoryNames, combos.length]);
+    if (sessionLocked) {
+      return [{ id: "all", label: "Menu" }];
+    }
+    return getMenuFilterChips().filter((c) => {
+      if (c.id === "other" && otherEmpty) return false;
+      if (c.id === "specials" && specialsEmpty) return false;
+      if (c.id === "combos" && filteredCombos.length === 0) return false;
+      return true;
+    });
+  }, [otherEmpty, specialsEmpty, filteredCombos.length, sessionLocked]);
 
   useEffect(() => {
-    if (chips.length > 0 && !chips.includes(activeChip)) {
-      setActiveChip("All");
+    if (chips.length > 0 && !chips.some((c) => c.id === activeTab)) {
+      setActiveTab("all");
     }
-  }, [chips, activeChip]);
-
-  const productsForCatalog = useMemo(() => {
-    if (activeChip === "Combos") return [];
-    const searched = products.filter((p) => productMatchesQuery(p, menuSearch));
-    if (activeChip === "All") return searched;
-    return searched.filter(
-      (p) => ((p.category && String(p.category).trim()) || "Other") === activeChip
-    );
-  }, [products, menuSearch, activeChip]);
+  }, [chips, activeTab]);
 
   const combosToShow = useMemo(() => {
-    if (activeChip !== "All" && activeChip !== "Combos") return [];
-    return combos.filter((c) => comboMatchesQuery(c, menuSearch));
-  }, [combos, menuSearch, activeChip]);
-
-  const { regularList, discountList } = useMemo(() => {
-    const discount = [];
-    const regular = [];
-    for (const p of productsForCatalog) {
-      const meta = getProductOfferMeta(p);
-      if (isDiscountSectionProduct(p, meta)) discount.push(p);
-      else regular.push(p);
-    }
-    return { regularList: regular, discountList: discount };
-  }, [productsForCatalog]);
-
-  const regularSections = useMemo(() => groupByCategory(regularList), [regularList]);
-  const discountSections = useMemo(() => groupByCategory(discountList), [discountList]);
+    return filteredCombos.filter((c) => comboMatchesQuery(c, debouncedSearch));
+  }, [filteredCombos, debouncedSearch]);
 
   const shopName = seller?.shopName || seller?.name || (sellerId ? "Shop" : "Menu");
   const shopImg = typeof seller?.imageUrl === "string" ? seller.imageUrl.trim() : "";
   const deliveryOn = seller?.deliveryEnabled === true;
   const hoursText = formatSellerHoursDisplay(seller);
   const openState = getShopOpenUiState(seller);
-  const offerLines = useMemo(() => formatOffers(seller), [seller]);
   const isLive = seller?.isLive === true;
   const cartThisShop = cartSellerId && cartSellerId === sellerId;
   const showCartBar = cartThisShop && lineCount > 0;
+  const showHeaderCart = isPublic;
 
   const openLabel = useMemo(() => {
-    if (openState === "open") return { text: "Open", cls: "bs-hero__pill--open", emoji: "🟢" };
-    if (openState === "closed") return { text: "Closed", cls: "bs-hero__pill--closed", emoji: "🔴" };
-    return { text: "Hours TBC", cls: "bs-hero__pill--unknown", emoji: "⏰" };
+    if (openState === "open")
+      return { text: "Open", cls: "bs-pill bs-pill--open" };
+    if (openState === "closed")
+      return { text: "Closed", cls: "bs-pill bs-pill--closed" };
+    return { text: "Hours TBC", cls: "bs-pill bs-pill--unknown" };
   }, [openState]);
 
   if (!sellerId) {
@@ -237,101 +253,159 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
   }
 
   const showProductSkeleton = productsLoading && products.length === 0 && !productErr;
-
+  const showCombosSection =
+    (activeTab === "all" || activeTab === "combos") &&
+    (filteredCombos.length > 0 || combosLoading);
+  const hasCombos = combosToShow.length > 0;
+  const hasProductSlots = MEAL_THEN_DEALS.some((s) => buckets[s].length > 0);
   const hasAnyMenu =
-    combosToShow.length > 0 ||
-    discountSections.length > 0 ||
-    regularSections.length > 0;
-
+    hasCombos || hasProductSlots || (filteredCombos.length > 0 && combosLoading);
   const showEmpty =
-    !productsLoading &&
-    !combosLoading &&
-    !hasAnyMenu &&
-    !productErr;
+    !productsLoading && !combosLoading && !hasAnyMenu && !productErr;
+
+  function renderProductGrid(list, sectionKey) {
+    return (
+      <ul className="bs-pgrid" key={sectionKey}>
+        {list.map((p) => {
+          const meta = getProductOfferMeta(p);
+          return (
+            <ProductCard
+              key={`${sectionKey}-${p.id}`}
+              p={p}
+              meta={meta}
+              sellerId={sellerId}
+              addItem={addItem}
+              setQty={setQty}
+              line={lineById.get(p.id)}
+              categoryLabel={menuSlotLabel(
+                getProductMenuSlot(p, meta)
+              )}
+            />
+          );
+        })}
+      </ul>
+    );
+  }
+
+  function filterProductsForActiveTab() {
+    if (activeTab === "all" || activeTab === "combos") return null;
+    if (activeTab === "specials")
+      return buckets.specials;
+    if (MEAL_THEN_DEALS.includes(/** @type {typeof MEAL_THEN_DEALS[number]} */(activeTab))) {
+      return buckets[activeTab] || [];
+    }
+    return null;
+  }
+
+  const singleTabProducts = filterProductsForActiveTab();
+  const sessionLabel =
+    sessionLocked && menuSession.slot
+      ? menuSession.slot === "combos"
+        ? "Combos"
+        : menuSlotLabel(/** @type {any} */(menuSession.slot))
+      : "";
 
   return (
     <div
-      className={`nb-page nb-page--browse bs-catalog${showCartBar ? " bs-catalog--with-float" : ""}`}
+      className={`bs-shop nb-page nb-page--browse${showCartBar || showHeaderCart ? " bs-shop--with-bar" : ""}`}
     >
-      <header>
-        {sellerErr ? <p className="nb-field__error">{sellerErr}</p> : null}
-
-        <div className="bs-hero">
-          <div className="bs-hero__banner">
-            <Link className="bs-hero__back" to={backTo}>
-              ← {backLabel}
-            </Link>
+      <div className="bs-shop__sticky">
+        <Link to={backTo} className="bs-shop__back" aria-label={`Back to ${backLabel}`}>
+          <span className="bs-shop__back-icon" aria-hidden>
+            ←
+          </span>
+        </Link>
+        <div className="bs-shop__brand">
+          {shopImg ? (
             <LazyImage
-              className="bs-hero__media"
-              imgClassName="bs-hero__img"
-              src={shopImg || null}
+              className="bs-shop__logo"
+              imgClassName="bs-shop__logo-img"
+              src={shopImg}
               alt=""
-              ratio="2 / 1"
+              ratio="1 / 1"
               variant="shop"
             />
-            <div className="bs-hero__grad" />
-          </div>
-          <div className="bs-hero__row">
-            <div className="bs-hero__logo" aria-hidden={!!shopImg}>
-              {shopImg ? (
-                <LazyImage
-                  className="bs-hero__media"
-                  imgClassName="bs-hero__img"
-                  src={shopImg}
-                  alt=""
-                  ratio="1 / 1"
-                  variant="shop"
-                />
-              ) : (
-                <div className="bs-hero__logo-fallback">{String(shopName).slice(0, 1).toUpperCase()}</div>
-              )}
+          ) : (
+            <div className="bs-shop__logo-fallback" aria-hidden>
+              {String(shopName).slice(0, 1).toUpperCase()}
             </div>
-            <div className="bs-hero__text">
-              <h1 className="bs-hero__title">{shopName}</h1>
-              <div className="bs-hero__meta">
-                <span className="bs-hero__rating" title="Rating (placeholder)">
-                  ⭐ 4.1
-                </span>
-                <span
-                  className={`bs-hero__pill ${openLabel.cls}`}
-                  title="Shop open status"
-                >
-                  {openLabel.emoji} {openLabel.text}
-                </span>
-                {isPublic && isLive ? (
-                  <span className="bs-hero__pill bs-hero__pill--live">LIVE</span>
-                ) : null}
-                <span className="bs-hero__pill" title="Delivery or pickup">
-                  {deliveryOn ? "🚚 Delivery" : "🛍 Pickup"}
-                </span>
-                <span title="Timings">⏰ {hoursText}</span>
-              </div>
-            </div>
+          )}
+        </div>
+        <div className="bs-shop__sticky-mid">
+          <h1 className="bs-shop__name">{shopName}</h1>
+          <div className="bs-shop__pills">
+            <span className={openLabel.cls} title="Shop open status">
+              {openState === "open" ? "Open" : openState === "closed" ? "Closed" : "Hours TBC"}
+            </span>
+            {isPublic && isLive ? (
+              <span className="bs-pill bs-pill--live">LIVE</span>
+            ) : null}
+            <span className="bs-pill bs-pill--muted" title="Delivery or pickup">
+              {deliveryOn ? "Delivery" : "Pickup"}
+            </span>
           </div>
         </div>
-
-        {offerLines.length > 0 || seller?.deliveryNote || seller?.deliveryInfo ? (
-          <div className="bs-offers-compact">
-            {offerLines.length > 0 ? (
-              <div>
-                <strong>Offers</strong>
-                <ul>
-                  {offerLines.map((t, i) => (
-                    <li key={`${i}-${t.slice(0, 16)}`}>{t}</li>
-                  ))}
-                </ul>
-              </div>
+        {showHeaderCart ? (
+          <Link to="/cart" className="bs-shop__cartbtn" aria-label="Open cart">
+            <span className="bs-shop__cart-ic" aria-hidden>
+              🛒
+            </span>
+            {lineCount > 0 ? (
+              <span className="bs-shop__cart-n">{lineCount > 9 ? "9+" : lineCount}</span>
             ) : null}
-            {seller?.deliveryNote || seller?.deliveryInfo ? (
-              <p>
-                {String(seller.deliveryNote || seller.deliveryInfo)}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </header>
+          </Link>
+        ) : (
+          <div className="bs-shop__cartpl" aria-hidden />
+        )}
+      </div>
 
-      <div className="bs-sticky-tools">
+      {sellerErr ? <p className="nb-field__error bs-shop__err">{sellerErr}</p> : null}
+
+      <div className="bs-hero bs-hero--compact">
+        <div className="bs-hero__banner">
+          <LazyImage
+            className="bs-hero__media"
+            imgClassName="bs-hero__img"
+            src={shopImg || null}
+            alt=""
+            ratio="2.2 / 1"
+            variant="shop"
+          />
+          <div className="bs-hero__grad" />
+        </div>
+        <p className="bs-hero__hours" title="Timings">
+          {hoursText}
+        </p>
+      </div>
+
+      {formatOffers(seller).length > 0 || seller?.deliveryNote || seller?.deliveryInfo ? (
+        <div className="bs-offers-compact">
+          {formatOffers(seller).length > 0 ? (
+            <div>
+              <strong>Offers</strong>
+              <ul>
+                {formatOffers(seller).map((t, i) => (
+                  <li key={`${i}-${t.slice(0, 16)}`}>{t}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {seller?.deliveryNote || seller?.deliveryInfo ? (
+            <p>{String(seller.deliveryNote || seller.deliveryInfo)}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {isPublic ? <StorefrontAdRail autoPlayMs={6000} /> : null}
+
+      {sessionLocked ? (
+        <div className="bs-session-banner" role="status">
+          <span className="bs-session-banner__dot" aria-hidden />
+          Showing <strong>{sessionLabel}</strong> only (set by the shop)
+        </div>
+      ) : null}
+
+      <div className="bs-sticky-tools bs-sticky-tools--shop">
         <div className="bs-search">
           <label htmlFor="bs-menu-search" className="visually-hidden">
             Search menu
@@ -347,55 +421,139 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
             enterKeyHint="search"
           />
         </div>
-        <div
-          className="bs-chips"
-          role="tablist"
-          aria-label="Menu categories"
-        >
-          {chips.map((c) => (
-            <button
-              key={c}
-              type="button"
-              role="tab"
-              className={`bs-chip${activeChip === c ? " bs-chip--active" : ""}`}
-              aria-selected={activeChip === c}
-              onClick={() => {
-                setActiveChip(c);
-              }}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
+        {!sessionLocked ? (
+          <div
+            className="bs-chips bs-chips--menu"
+            role="tablist"
+            aria-label="Menu categories"
+          >
+            {chips.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                role="tab"
+                className={`bs-chip${activeTab === c.id ? " bs-chip--active" : ""}`}
+                aria-selected={activeTab === c.id}
+                onClick={() => {
+                  setActiveTab(c.id);
+                  const el =
+                    c.id === "all"
+                      ? null
+                      : document.getElementById(
+                          c.id === "combos" ? "bs-sec-combos" : `bs-sec-${c.id}`
+                        );
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {productErr ? <p className="nb-field__error">{productErr}</p> : null}
       {comboErr ? <p className="nb-field__error nb-field__error--soft">{comboErr}</p> : null}
-
       {showProductSkeleton ? <BsProductGridSkeleton /> : null}
 
-      {combosLoading && combosToShow.length === 0 && !comboErr && (activeChip === "All" || activeChip === "Combos") ? (
-        <section className="bs-section" aria-busy="true">
-          <h2 className="bs-section__title">Combos</h2>
-          <BsProductGridSkeleton />
+      {activeTab === "all" ? (
+        <>
+          {["breakfast", "lunch", "dinner"].map((slot) => {
+            const list = buckets[/** @type {typeof slot} */(slot)];
+            if (!list || !list.length) return null;
+            return (
+              <section
+                className="bs-section"
+                key={slot}
+                id={`bs-sec-${slot}`}
+              >
+                <h2 className="bs-section__title">
+                  {menuSlotLabel(/** @type {any} */(slot))}
+                </h2>
+                {renderProductGrid(list, slot)}
+              </section>
+            );
+          })}
+
+          {showCombosSection ? (
+            <section
+              className="bs-section"
+              id="bs-sec-combos"
+              aria-busy={combosLoading}
+            >
+              <h2 className="bs-section__title">Combos</h2>
+              {combosLoading ? (
+                <BsProductGridSkeleton />
+              ) : (
+                <ul className="bs-pgrid">
+                  {combosToShow.map((c) => (
+                    <ComboCard
+                      key={c.id}
+                      c={c}
+                      sellerId={sellerId}
+                      addItem={addItem}
+                      setQty={setQty}
+                      line={lineById.get(`combo_${c.id}`)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
+
+          {["specials", "other"]
+            .filter((slot) => (slot === "other" ? !otherEmpty : true))
+            .map((slot) => {
+              const list = buckets[/** @type {typeof slot} */(slot)];
+              if (!list || !list.length) return null;
+              return (
+                <section
+                  className="bs-section"
+                  key={slot}
+                  id={`bs-sec-${slot}`}
+                >
+                  <h2 className="bs-section__title">
+                    {slot === "other" ? "More" : menuSlotLabel(/** @type {any} */(slot))}
+                  </h2>
+                  {renderProductGrid(list, slot)}
+                </section>
+              );
+            })}
+        </>
+      ) : null}
+
+      {activeTab !== "all" && activeTab !== "combos" && singleTabProducts ? (
+        <section className="bs-section" id="bs-sec-one">
+          <h2 className="bs-section__title">
+            {chips.find((c) => c.id === activeTab)?.label || "Menu"}
+          </h2>
+          {singleTabProducts.length === 0 ? (
+            <p className="nb-muted">No dishes in this section.</p>
+          ) : (
+            renderProductGrid(singleTabProducts, "one")
+          )}
         </section>
       ) : null}
 
-      {!combosLoading && combosToShow.length > 0 ? (
-        <section className="bs-section">
+      {activeTab === "combos" && !combosLoading ? (
+        <section className="bs-section" id="bs-sec-combos-only">
           <h2 className="bs-section__title">Combos</h2>
-          <ul className="bs-pgrid">
-            {combosToShow.map((c) => (
-              <ComboCard
-                key={c.id}
-                c={c}
-                sellerId={sellerId}
-                addItem={addItem}
-                setQty={setQty}
-                line={lineById.get(`combo_${c.id}`)}
-              />
-            ))}
-          </ul>
+          {combosToShow.length === 0 ? (
+            <p className="nb-muted">No combos right now.</p>
+          ) : (
+            <ul className="bs-pgrid">
+              {combosToShow.map((c) => (
+                <ComboCard
+                  key={c.id}
+                  c={c}
+                  sellerId={sellerId}
+                  addItem={addItem}
+                  setQty={setQty}
+                  line={lineById.get(`combo_${c.id}`)}
+                />
+              ))}
+            </ul>
+          )}
         </section>
       ) : null}
 
@@ -404,53 +562,17 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
           <span className="bs-empty__icon" aria-hidden>
             🍽
           </span>
-          <strong>No items available today</strong>
+          <strong>No items in this session</strong>
           <div>Check back later or try a different search.</div>
         </div>
       ) : null}
 
-      {discountSections.map(([category, list]) => (
-        <section key={`d-${category}`} className="bs-section">
-          <h2 className="bs-section__title">Discount items · {category}</h2>
-          <ul className="bs-pgrid">
-            {list.map((p) => (
-              <ProductCard
-                key={`d-${category}-${p.id}`}
-                p={p}
-                sellerId={sellerId}
-                addItem={addItem}
-                setQty={setQty}
-                line={lineById.get(p.id)}
-                discountSection
-                categoryLabel={category}
-              />
-            ))}
-          </ul>
-        </section>
-      ))}
-
-      {regularSections.map(([category, list]) => (
-        <section key={category} className="bs-section">
-          <h2 className="bs-section__title">{category}</h2>
-          <ul className="bs-pgrid">
-            {list.map((p) => (
-              <ProductCard
-                key={`${category}-${p.id}`}
-                p={p}
-                sellerId={sellerId}
-                addItem={addItem}
-                setQty={setQty}
-                line={lineById.get(p.id)}
-                discountSection={false}
-                categoryLabel={category}
-              />
-            ))}
-          </ul>
-        </section>
-      ))}
-
       {showCartBar ? (
-        <Link to="/cart" className="bs-float-cart" aria-label="View cart and checkout">
+        <Link
+          to="/cart"
+          className="bs-float-cart"
+          aria-label="View cart and checkout"
+        >
           <div className="bs-float-cart__left">
             <div className="bs-float-cart__line">
               <span aria-hidden>🛒</span>
@@ -461,7 +583,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
             </div>
             <div className="bs-float-cart__total">{formatCurrencyInr(total)}</div>
           </div>
-          <span className="bs-float-cart__cta">View cart →</span>
+          <span className="bs-float-cart__cta">Checkout</span>
         </Link>
       ) : null}
     </div>

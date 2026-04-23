@@ -25,6 +25,12 @@ export default function PublicHomePage() {
         <h1 className="nb-title">FaFo — Order food</h1>
         <p className="nb-subtitle">Scan a shop QR or enter a code. No sign-up required.</p>
         <p className="nb-muted" style={{ marginTop: "0.4rem" }}>
+          <Link className="nb-inline-link" to="/explore">
+            Explore
+          </Link>
+          <span> — offers, nearby shops, track orders</span>
+        </p>
+        <p className="nb-muted" style={{ marginTop: "0.35rem" }}>
           <Link className="nb-inline-link" to="/dashboard">
             My dashboard
           </Link>
@@ -32,10 +38,6 @@ export default function PublicHomePage() {
         </p>
         {user && profileComplete ? (
           <p className="nb-muted" style={{ marginTop: "0.5rem" }}>
-            <Link className="nb-inline-link" to="/explore">
-              Open your discovery home
-            </Link>
-            {" · "}
             <Link className="nb-inline-link" to="/orders">
               My orders
             </Link>

@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { LazyImage } from "../ui/LazyImage";
 import { formatCurrencyInr } from "../../utils/format";
+import { isComboUnavailable } from "../../utils/menuSections";
 
 function comboImageUrl(c) {
   const u = c.imageUrl ?? c.image;
@@ -30,6 +31,7 @@ function ComboCard({ c, sellerId, addItem, setQty, line }) {
   const lineId = `combo_${c.id}`;
   const qty = line ? Math.max(0, Math.floor(Number(line.qty) || 0)) : 0;
   const inCart = qty > 0;
+  const unavailable = isComboUnavailable(c);
   const payload = () => ({
     id: lineId,
     productId: lineId,
@@ -48,7 +50,11 @@ function ComboCard({ c, sellerId, addItem, setQty, line }) {
 
   return (
     <li className="bs-pcard-wrap">
-      <article className="bs-pcard bs-pcard--combo">
+      <article
+        className={`bs-pcard bs-pcard--combo${
+          unavailable ? " bs-pcard--unavailable" : ""
+        }`}
+      >
         <div className="bs-pcard__img-wrap">
           <LazyImage
             className="bs-pcard__media"
@@ -58,6 +64,7 @@ function ComboCard({ c, sellerId, addItem, setQty, line }) {
             ratio="1 / 1"
             variant="food"
           />
+          {unavailable ? <div className="bs-pcard__soldout">Out of stock</div> : null}
         </div>
         <div className="bs-pcard__body">
           <h3 className="bs-pcard__title" title={label}>
@@ -68,7 +75,9 @@ function ComboCard({ c, sellerId, addItem, setQty, line }) {
             <div className="bs-pcard__price-line">
               <span className="bs-pcard__price">{formatCurrencyInr(price)}</span>
               {originalPrice != null ? (
-                <span className="bs-pcard__strike">{formatCurrencyInr(originalPrice)}</span>
+                <span className="bs-pcard__strike">
+                  {formatCurrencyInr(originalPrice)}
+                </span>
               ) : null}
             </div>
             <span className="bs-pcard__star" title="Combo">
@@ -76,7 +85,9 @@ function ComboCard({ c, sellerId, addItem, setQty, line }) {
             </span>
           </div>
           <div className="bs-pcard__action">
-            {inCart && line ? (
+            {unavailable ? (
+              <span className="bs-pcard__na">Unavailable</span>
+            ) : inCart && line ? (
               <div className="bs-stepper" role="group" aria-label="Quantity">
                 <button
                   type="button"

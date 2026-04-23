@@ -2,6 +2,7 @@ import {
   addDoc,
   collection,
   doc,
+  getDocs,
   onSnapshot,
   query,
   serverTimestamp,
@@ -108,6 +109,7 @@ export function subscribeOrderById(orderId, onData, onError) {
  *   buyerPhone: string,
  *   buyerName?: string,
  *   buyerAddress?: string,
+ *   buyerLandmark?: string,
  *   sellerPhone?: string,
  *   items: Record<string, unknown>[],
  *   total: number,
@@ -129,6 +131,7 @@ export async function createOrder(payload) {
     buyerPhone: payload.buyerPhone,
     buyerName: payload.buyerName || "",
     buyerAddress: payload.buyerAddress || "",
+    buyerLandmark: String(payload.buyerLandmark || "").trim(),
     buyerGuest: payload.buyerGuest === true,
     sellerPhone: payload.sellerPhone || "",
     items: payload.items,
@@ -144,4 +147,24 @@ export async function createOrder(payload) {
   });
   await updateDoc(ref, { orderId: ref.id });
   return ref.id;
+}
+
+/**
+ * Latest order for a guest (phone), sorted client-side by `createdAt`.
+ * @param {string} phone E.164 or local digits — normalized in caller
+ * @returns {Promise<({ id: string } & Record<string, unknown>) | null>}
+ */
+export async function fetchLatestOrderByPhone(phone) {
+  const p = String(phone || "").trim();
+  if (!p) return null;
+  const snap = await getDocs(
+    query(ordersCol(), where("buyerPhone", "==", p))
+  );
+  const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  list.sort((a, b) => {
+    const ta = a.createdAt?.toMillis?.() ?? 0;
+    const tb = b.createdAt?.toMillis?.() ?? 0;
+    return tb - ta;
+  });
+  return list[0] || null;
 }
