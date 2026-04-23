@@ -3,16 +3,17 @@ import { Link } from "react-router-dom";
 import { subscribeProductsBySeller } from "../../services/productService";
 import { subscribeCombosBySeller } from "../../services/comboService";
 import { subscribeSellerById } from "../../services/sellerService";
+import { subscribeMenuGroupsBySeller } from "../../services/menuGroupService";
 import { useCart } from "../../context/CartContext";
 import { getProductOfferMeta } from "../../utils/pricing";
 import { formatCurrencyInr } from "../../utils/format";
 import { formatSellerHoursDisplay } from "../../utils/shopStatus";
 import { getShopOpenUiState } from "../../utils/shopOpenStatus";
 import {
-  getMenuFilterChips,
+  buildCategoryFallbackMenuGroups,
   getProductMenuSlot,
-  getSellerMenuSession,
   menuSlotLabel,
+  resolveMenuSessionForGroups,
 } from "../../utils/menuSections";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { LazyImage } from "../ui/LazyImage";
@@ -20,8 +21,6 @@ import ProductCard from "./ProductCard";
 import ComboCard from "./ComboCard";
 import StorefrontAdRail from "../StorefrontAdRail";
 import "../../styles/buyerShop.css";
-
-const MEAL_THEN_DEALS = /** @type {const} */ (["breakfast", "lunch", "dinner", "specials", "other"]);
 
 function formatOffers(seller) {
   if (!seller) return [];
@@ -65,6 +64,28 @@ function comboMatchesQuery(c, q) {
   return name.includes(t) || sum.includes(t);
 }
 
+/** @param {string} gid */
+function sectionDomIdForGroup(gid) {
+  return `bs-sec-mg-${String(gid).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
+/**
+ * @param {Map<string, Record<string, unknown>>} byId
+ * @param {string[]} pids
+ * @param {string} q
+ */
+function pickProductsInOrder(byId, pids, q) {
+  const out = [];
+  for (const raw of pids || []) {
+    const k = String(raw);
+    const p = byId.get(k);
+    if (p && productMatchesQuery(/** @type {Record<string, unknown>} */(p), q)) {
+      out.push(/** @type {Record<string, unknown>} */(p));
+    }
+  }
+  return out;
+}
+
 function BsProductGridSkeleton() {
   return (
     <ul className="bs-pgrid bs-pgrid--skeleton" aria-busy="true">
@@ -95,6 +116,11 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
   const debouncedSearch = useDebouncedValue(menuSearch, 320);
   const [activeTab, setActiveTab] = useState(/** @type {string} */("all"));
   const [products, setProducts] = useState([]);
+
+  const [rawMenuGroups, setRawMenuGroups] = useState(/** @type {import("../../services/menuGroupService").MenuGroupDoc[]} */ ([]));
+  const [menuGroupsLoaded, setMenuGroupsLoaded] = useState(false);
+  const [menuGroupErr, setMenuGroupErr] = useState("");
+
   const [combos, setCombos] = useState([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [combosLoading, setCombosLoading] = useState(true);
@@ -103,24 +129,141 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
   const [productErr, setProductErr] = useState("");
   const [comboErr, setComboErr] = useState("");
 
-  const menuSession = useMemo(() => getSellerMenuSession(seller), [seller]);
-  const sessionLocked = menuSession.mode === "slot" && menuSession.slot;
+  const displayGroups = useMemo(() => {
+    if (rawMenuGroups.length > 0) return rawMenuGroups;
+    if (!menuGroupsLoaded) {
+      return products.length > 0 ? buildCategoryFallbackMenuGroups(products) : null;
+    }
+    return buildCategoryFallbackMenuGroups(products);
+  }, [rawMenuGroups, menuGroupsLoaded, products]);
 
-  const filteredProducts = useMemo(() => {
-    if (menuSession.mode !== "slot" || !menuSession.slot) return products;
-    const slot = menuSession.slot;
-    if (slot === "combos") return [];
-    return products.filter((p) => {
-      const meta = getProductOfferMeta(p);
-      return getProductMenuSlot(p, meta) === slot;
-    });
-  }, [products, menuSession]);
+  const sessionResolved = useMemo(() => {
+    if (displayGroups == null) {
+      return /** @type {const} */ ({ mode: "all" });
+    }
+    return resolveMenuSessionForGroups(seller, displayGroups);
+  }, [seller, displayGroups]);
 
-  const filteredCombos = useMemo(() => {
-    if (menuSession.mode !== "slot" || !menuSession.slot) return combos;
-    if (menuSession.slot === "combos") return combos;
-    return [];
-  }, [combos, menuSession]);
+  const sessionBaseProducts = useMemo(() => {
+    if (displayGroups == null) return [];
+    if (sessionResolved.mode === "combosOnly") return [];
+    if (sessionResolved.mode === "legacyNoGroups" && "slot" in sessionResolved) {
+      const slot = String(sessionResolved.slot);
+      if (slot === "combos") return [];
+      return products.filter((p) => {
+        const meta = getProductOfferMeta(p);
+        return getProductMenuSlot(p, meta) === String(slot);
+      });
+    }
+    if (sessionResolved.mode === "oneGroup" && "groupId" in sessionResolved) {
+      const gid = sessionResolved.groupId;
+      const g = displayGroups.find((x) => x.id === gid);
+      const s = new Set((g?.productIds || []).map((x) => String(x)));
+      if (!s.size) return [];
+      return products.filter((p) => s.has(String(p.id)));
+    }
+    return products;
+  }, [products, displayGroups, sessionResolved]);
+
+  const sessionBaseCombos = useMemo(() => {
+    if (displayGroups == null) return [];
+    if (sessionResolved.mode === "combosOnly") return combos;
+    if (sessionResolved.mode === "oneGroup" && "groupId" in sessionResolved) return [];
+    if (sessionResolved.mode === "legacyNoGroups" && "slot" in sessionResolved) {
+      if (String(sessionResolved.slot) === "combos") return combos;
+    }
+    return combos;
+  }, [combos, displayGroups, sessionResolved]);
+
+  const sessionLocked = useMemo(() => {
+    return (
+      (sessionResolved.mode === "oneGroup" && "groupId" in sessionResolved) ||
+      sessionResolved.mode === "combosOnly"
+    );
+  }, [sessionResolved]);
+
+  const menuGroupsForChips = useMemo(() => {
+    if (displayGroups == null) return [];
+    if (sessionResolved.mode === "combosOnly") return [];
+    if (sessionResolved.mode === "oneGroup" && "groupId" in sessionResolved) {
+      return displayGroups.filter((g) => g.id === sessionResolved.groupId);
+    }
+    return displayGroups;
+  }, [displayGroups, sessionResolved]);
+
+  const chips = useMemo(() => {
+    const hasCombos = sessionBaseCombos.length > 0;
+    if (sessionLocked) {
+      if (sessionResolved.mode === "combosOnly") {
+        return [{ id: "combos", label: "Combos" }];
+      }
+      if (sessionResolved.mode === "oneGroup" && "groupId" in sessionResolved) {
+        return [
+          {
+            id: sessionResolved.groupId,
+            label: sessionResolved.label || "Menu",
+          },
+        ];
+      }
+    }
+    const c = /** @type {{ id: string, label: string }[]} */ ([{ id: "all", label: "All" }]);
+    for (const g of menuGroupsForChips) {
+      c.push({ id: g.id, label: String(g.name || g.slug || "Menu") });
+    }
+    if (hasCombos) c.push({ id: "combos", label: "Combos" });
+    return c;
+  }, [menuGroupsForChips, sessionBaseCombos.length, sessionLocked, sessionResolved]);
+
+  const byId = useMemo(() => {
+    const m = new Map();
+    for (const p of sessionBaseProducts) {
+      if (p?.id != null) m.set(String(p.id), p);
+    }
+    return m;
+  }, [sessionBaseProducts]);
+
+  const allSections = useMemo(() => {
+    const q = debouncedSearch;
+    if (displayGroups == null) return { sections: /** @type {{ id: string, label: string, products: any[] }[]} */ ([]), other: [] };
+    if (sessionResolved.mode === "combosOnly" || (sessionLocked && sessionResolved.mode === "oneGroup")) {
+      return { sections: [], other: [] };
+    }
+    const ordered = displayGroups;
+    const taken = new Set();
+    const sections = [];
+    for (const g of ordered) {
+      const pids = Array.isArray(g.productIds) ? g.productIds : [];
+      const list = pickProductsInOrder(byId, pids, q);
+      for (const p of list) {
+        if (p?.id) taken.add(String(p.id));
+      }
+      if (g.id) {
+        sections.push({ id: g.id, label: String(g.name || g.slug || "Menu"), group: g, products: list });
+      }
+    }
+    const other = [];
+    for (const p of sessionBaseProducts) {
+      if (p?.id == null) continue;
+      if (!taken.has(String(p.id)) && productMatchesQuery(p, q)) other.push(p);
+    }
+    return { sections, other };
+  }, [byId, debouncedSearch, displayGroups, sessionBaseProducts, sessionLocked, sessionResolved.mode]);
+
+  const singleTabList = useMemo(() => {
+    const q = debouncedSearch;
+    if (activeTab === "all" || activeTab === "combos") return null;
+    const g = (displayGroups || []).find((x) => x.id === activeTab);
+    if (!g) return null;
+    return pickProductsInOrder(
+      byId,
+      g.productIds || [],
+      q
+    );
+  }, [activeTab, byId, debouncedSearch, displayGroups]);
+
+  const combosToShow = useMemo(() => {
+    return sessionBaseCombos.filter((c) => comboMatchesQuery(c, debouncedSearch));
+  }, [sessionBaseCombos, debouncedSearch]);
 
   const lineById = useMemo(() => {
     const m = new Map();
@@ -140,6 +283,25 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
       },
       (err) => {
         setSellerErr(err instanceof Error ? err.message : "Shop unavailable.");
+      }
+    );
+    return () => unsub();
+  }, [sellerId]);
+
+  useEffect(() => {
+    if (!sellerId) return undefined;
+    setMenuGroupsLoaded(false);
+    setMenuGroupErr("");
+    const unsub = subscribeMenuGroupsBySeller(
+      sellerId,
+      (list) => {
+        setRawMenuGroups(list);
+        setMenuGroupsLoaded(true);
+      },
+      (e) => {
+        setMenuGroupErr(e?.message || "Menu groups unavailable.");
+        setMenuGroupsLoaded(true);
+        setRawMenuGroups([]);
       }
     );
     return () => unsub();
@@ -182,49 +344,42 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     return () => unsub();
   }, [sellerId]);
 
-  const { buckets, otherEmpty, specialsEmpty } = useMemo(() => {
-    const q = debouncedSearch;
-    const b = {
-      breakfast: /** @type {Record<string, unknown>[]} */ ([]),
-      lunch: [],
-      dinner: [],
-      specials: [],
-      other: [],
-    };
-    for (const p of filteredProducts) {
-      if (!productMatchesQuery(p, q)) continue;
-      const meta = getProductOfferMeta(p);
-      const slot = getProductMenuSlot(p, meta);
-      b[slot].push(p);
+  useEffect(() => {
+    if (sessionResolved.mode === "oneGroup" && "groupId" in sessionResolved) {
+      setActiveTab(sessionResolved.groupId);
+    } else if (sessionResolved.mode === "combosOnly") {
+      setActiveTab("combos");
     }
-    return {
-      buckets: b,
-      otherEmpty: b.other.length === 0,
-      specialsEmpty: b.specials.length === 0,
-    };
-  }, [filteredProducts, debouncedSearch]);
-
-  const chips = useMemo(() => {
-    if (sessionLocked) {
-      return [{ id: "all", label: "Menu" }];
-    }
-    return getMenuFilterChips().filter((c) => {
-      if (c.id === "other" && otherEmpty) return false;
-      if (c.id === "specials" && specialsEmpty) return false;
-      if (c.id === "combos" && filteredCombos.length === 0) return false;
-      return true;
-    });
-  }, [otherEmpty, specialsEmpty, filteredCombos.length, sessionLocked]);
+  }, [sessionResolved, sellerId]);
 
   useEffect(() => {
     if (chips.length > 0 && !chips.some((c) => c.id === activeTab)) {
-      setActiveTab("all");
+      setActiveTab(chips[0].id);
     }
   }, [chips, activeTab]);
 
-  const combosToShow = useMemo(() => {
-    return filteredCombos.filter((c) => comboMatchesQuery(c, debouncedSearch));
-  }, [filteredCombos, debouncedSearch]);
+  useEffect(() => {
+    const docs = rawMenuGroups;
+    const tab = activeTab;
+    let filteredForLog = null;
+    if (tab === "all") {
+      const flat = [
+        ...allSections.sections.flatMap((s) => s.products),
+        ...allSections.other,
+      ];
+      filteredForLog = flat;
+    } else if (tab === "combos") {
+      filteredForLog = combosToShow;
+    } else {
+      filteredForLog = singleTabList || [];
+    }
+    // eslint-disable-next-line no-console
+    console.log("[shop] menuGroups docs (raw from Firestore)", docs);
+    // eslint-disable-next-line no-console
+    console.log("[shop] selected tab", tab, "display groups", displayGroups, "session", sessionResolved);
+    // eslint-disable-next-line no-console
+    console.log("[shop] filtered for active tab (products or combos list)", filteredForLog);
+  }, [rawMenuGroups, activeTab, allSections, combosToShow, singleTabList, displayGroups, sessionResolved]);
 
   const shopName = seller?.shopName || seller?.name || (sellerId ? "Shop" : "Menu");
   const shopImg = typeof seller?.imageUrl === "string" ? seller.imageUrl.trim() : "";
@@ -252,22 +407,28 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     );
   }
 
-  const showProductSkeleton = productsLoading && products.length === 0 && !productErr;
-  const showCombosSection =
-    (activeTab === "all" || activeTab === "combos") &&
-    (filteredCombos.length > 0 || combosLoading);
-  const hasCombos = combosToShow.length > 0;
-  const hasProductSlots = MEAL_THEN_DEALS.some((s) => buckets[s].length > 0);
-  const hasAnyMenu =
-    hasCombos || hasProductSlots || (filteredCombos.length > 0 && combosLoading);
-  const showEmpty =
-    !productsLoading && !combosLoading && !hasAnyMenu && !productErr;
+  const showCombosOnAllView =
+    (activeTab === "all" || activeTab === "combos") && (sessionBaseCombos.length > 0 || combosLoading) && !sessionLocked;
 
-  function renderProductGrid(list, sectionKey) {
+  const hasCombos = combosToShow.length > 0;
+  const hasAnyMenuSection = allSections.sections.some((s) => s.products.length > 0) || allSections.other.length > 0;
+  const hasAnyMenu =
+    hasCombos || hasAnyMenuSection || (sessionBaseCombos.length > 0 && combosLoading) || (sessionBaseCombos.length > 0 && !combosLoading);
+
+  const showEmpty =
+    !productsLoading &&
+    !combosLoading &&
+    !hasAnyMenu &&
+    !productErr;
+
+  function renderProductGrid(list, sectionKey, categoryOverride) {
     return (
       <ul className="bs-pgrid" key={sectionKey}>
         {list.map((p) => {
-          const meta = getProductOfferMeta(p);
+          const meta = getProductOfferMeta(/** @type {Record<string, unknown>} */(p));
+          const base = categoryOverride
+            ? categoryOverride
+            : menuSlotLabel(getProductMenuSlot(/** @type {Record<string, unknown>} */(p), meta));
           return (
             <ProductCard
               key={`${sectionKey}-${p.id}`}
@@ -277,9 +438,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
               addItem={addItem}
               setQty={setQty}
               line={lineById.get(p.id)}
-              categoryLabel={menuSlotLabel(
-                getProductMenuSlot(p, meta)
-              )}
+              categoryLabel={base}
             />
           );
         })}
@@ -287,23 +446,26 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     );
   }
 
-  function filterProductsForActiveTab() {
-    if (activeTab === "all" || activeTab === "combos") return null;
-    if (activeTab === "specials")
-      return buckets.specials;
-    if (MEAL_THEN_DEALS.includes(/** @type {typeof MEAL_THEN_DEALS[number]} */(activeTab))) {
-      return buckets[activeTab] || [];
+  const showProductSkeleton = productsLoading && products.length === 0 && !productErr;
+  const sessionLabel = sessionLocked
+    ? sessionResolved.mode === "combosOnly"
+      ? "Combos"
+      : sessionResolved.mode === "oneGroup" && "label" in sessionResolved
+        ? String(sessionResolved.label || "")
+        : ""
+    : "";
+
+  function emptyCopyForGroupTab() {
+    const g = (displayGroups || []).find((x) => x.id === activeTab);
+    const pids = g && Array.isArray(g.productIds) ? g.productIds : [];
+    if (pids.length === 0) {
+      return "No dishes in this section";
+    }
+    if ((singleTabList || []).length === 0) {
+      return "No dishes match your search";
     }
     return null;
   }
-
-  const singleTabProducts = filterProductsForActiveTab();
-  const sessionLabel =
-    sessionLocked && menuSession.slot
-      ? menuSession.slot === "combos"
-        ? "Combos"
-        : menuSlotLabel(/** @type {any} */(menuSession.slot))
-      : "";
 
   return (
     <div
@@ -360,6 +522,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
       </div>
 
       {sellerErr ? <p className="nb-field__error bs-shop__err">{sellerErr}</p> : null}
+      {menuGroupErr ? <p className="nb-field__error nb-field__error--soft">{menuGroupErr}</p> : null}
 
       <div className="bs-hero bs-hero--compact">
         <div className="bs-hero__banner">
@@ -398,7 +561,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
 
       {isPublic ? <StorefrontAdRail autoPlayMs={6000} /> : null}
 
-      {sessionLocked ? (
+      {sessionLocked && sessionLabel ? (
         <div className="bs-session-banner" role="status">
           <span className="bs-session-banner__dot" aria-hidden />
           Showing <strong>{sessionLabel}</strong> only (set by the shop)
@@ -421,7 +584,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
             enterKeyHint="search"
           />
         </div>
-        {!sessionLocked ? (
+        {!sessionLocked && chips.length > 1 ? (
           <div
             className="bs-chips bs-chips--menu"
             role="tablist"
@@ -436,12 +599,13 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
                 aria-selected={activeTab === c.id}
                 onClick={() => {
                   setActiveTab(c.id);
+                  if (c.id === "all") {
+                    return;
+                  }
                   const el =
-                    c.id === "all"
-                      ? null
-                      : document.getElementById(
-                          c.id === "combos" ? "bs-sec-combos" : `bs-sec-${c.id}`
-                        );
+                    c.id === "combos"
+                      ? document.getElementById("bs-sec-combos")
+                      : document.getElementById(sectionDomIdForGroup(c.id));
                   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
                 }}
               >
@@ -456,26 +620,58 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
       {comboErr ? <p className="nb-field__error nb-field__error--soft">{comboErr}</p> : null}
       {showProductSkeleton ? <BsProductGridSkeleton /> : null}
 
-      {activeTab === "all" ? (
+      {activeTab === "all" && !sessionLocked ? (
         <>
-          {["breakfast", "lunch", "dinner"].map((slot) => {
-            const list = buckets[/** @type {typeof slot} */(slot)];
-            if (!list || !list.length) return null;
+          {allSections.sections.map((sec) => {
+            const pids = sec.group && Array.isArray(sec.group.productIds) ? sec.group.productIds : [];
+            if (sec.products && sec.products.length) {
+              return (
+                <section
+                  className="bs-section"
+                  key={sec.id}
+                  id={sectionDomIdForGroup(sec.id)}
+                >
+                  <h2 className="bs-section__title">{sec.label}</h2>
+                  {renderProductGrid(
+                    sec.products,
+                    `sec-${sec.id}`,
+                    String(sec.label)
+                  )}
+                </section>
+              );
+            }
+            if (pids.length === 0) {
+              return (
+                <section
+                  className="bs-section"
+                  key={sec.id}
+                  id={sectionDomIdForGroup(sec.id)}
+                >
+                  <h2 className="bs-section__title">{sec.label}</h2>
+                  <p className="nb-muted">No dishes in this section</p>
+                </section>
+              );
+            }
             return (
               <section
                 className="bs-section"
-                key={slot}
-                id={`bs-sec-${slot}`}
+                key={sec.id}
+                id={sectionDomIdForGroup(sec.id)}
               >
-                <h2 className="bs-section__title">
-                  {menuSlotLabel(/** @type {any} */(slot))}
-                </h2>
-                {renderProductGrid(list, slot)}
+                <h2 className="bs-section__title">{sec.label}</h2>
+                <p className="nb-muted">No dishes match your search</p>
               </section>
             );
           })}
 
-          {showCombosSection ? (
+          {allSections.other.length > 0 ? (
+            <section className="bs-section" id="bs-sec-other-mg">
+              <h2 className="bs-section__title">More</h2>
+              {renderProductGrid(allSections.other, "other-mg", "More")}
+            </section>
+          ) : null}
+
+          {showCombosOnAllView ? (
             <section
               className="bs-section"
               id="bs-sec-combos"
@@ -500,45 +696,42 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
               )}
             </section>
           ) : null}
-
-          {["specials", "other"]
-            .filter((slot) => (slot === "other" ? !otherEmpty : true))
-            .map((slot) => {
-              const list = buckets[/** @type {typeof slot} */(slot)];
-              if (!list || !list.length) return null;
-              return (
-                <section
-                  className="bs-section"
-                  key={slot}
-                  id={`bs-sec-${slot}`}
-                >
-                  <h2 className="bs-section__title">
-                    {slot === "other" ? "More" : menuSlotLabel(/** @type {any} */(slot))}
-                  </h2>
-                  {renderProductGrid(list, slot)}
-                </section>
-              );
-            })}
         </>
       ) : null}
 
-      {activeTab !== "all" && activeTab !== "combos" && singleTabProducts ? (
-        <section className="bs-section" id="bs-sec-one">
-          <h2 className="bs-section__title">
-            {chips.find((c) => c.id === activeTab)?.label || "Menu"}
-          </h2>
-          {singleTabProducts.length === 0 ? (
-            <p className="nb-muted">No dishes in this section.</p>
-          ) : (
-            renderProductGrid(singleTabProducts, "one")
-          )}
-        </section>
-      ) : null}
+      {activeTab !== "all" && activeTab !== "combos" && singleTabList != null
+        ? (() => {
+            const copy = emptyCopyForGroupTab();
+            return (
+              <section
+                className="bs-section"
+                id="bs-sec-one"
+                key="one-tab"
+              >
+                <h2 className="bs-section__title">
+                  {chips.find((c) => c.id === activeTab)?.label || "Menu"}
+                </h2>
+                {copy ? <p className="nb-muted">{copy}</p> : renderProductGrid(
+                  singleTabList,
+                  "one",
+                  String(chips.find((c) => c.id === activeTab)?.label || "Menu")
+                )}
+              </section>
+            );
+          })()
+        : null}
 
-      {activeTab === "combos" && !combosLoading ? (
-        <section className="bs-section" id="bs-sec-combos-only">
+      {activeTab === "combos" ? (
+        <section
+          className="bs-section"
+          id="bs-sec-combos"
+          key="combo-only"
+          aria-busy={combosLoading}
+        >
           <h2 className="bs-section__title">Combos</h2>
-          {combosToShow.length === 0 ? (
+          {combosLoading ? (
+            <BsProductGridSkeleton />
+          ) : combosToShow.length === 0 ? (
             <p className="nb-muted">No combos right now.</p>
           ) : (
             <ul className="bs-pgrid">

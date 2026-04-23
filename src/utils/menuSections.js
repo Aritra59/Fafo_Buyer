@@ -107,6 +107,169 @@ export function getMenuFilterChips() {
 }
 
 /**
+ * @param {string} s
+ * @returns {string}
+ */
+function slugifyName(s) {
+  return String(s)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "group";
+}
+
+/**
+ * When Firestore has no `menuGroups`, derive one synthetic group per distinct `product.category`.
+ * @param {Array<Record<string, unknown>>} products
+ * @returns {Array<{id: string, name: string, slug: string, productIds: string[], active: boolean, sortOrder: number, _fallback?: true}>}
+ */
+export function buildCategoryFallbackMenuGroups(products) {
+  if (!Array.isArray(products) || products.length === 0) return [];
+  const byCat = new Map();
+  for (const p of products) {
+    const id = p?.id != null ? String(p.id) : "";
+    if (!id) continue;
+    const raw = p?.category != null ? String(p.category) : "";
+    const cat = raw.trim() || "Other";
+    if (!byCat.has(cat)) byCat.set(cat, /** @type {string[]} */ ([]));
+    byCat.get(cat).push(id);
+  }
+  const names = Array.from(byCat.keys()).sort((a, b) => a.localeCompare(b));
+  return names.map((name, i) => {
+    const slug = slugifyName(name);
+    return {
+      id: `fb__${i}_${encodeURIComponent(name).replace(/%/g, "_")}`,
+      name,
+      slug,
+      productIds: byCat.get(name) || [],
+      active: true,
+      sortOrder: i,
+      _fallback: true,
+    };
+  });
+}
+
+/**
+ * Menu session: restrict buyer to one group, or combos only, or show full day menu.
+ * @param {Record<string, unknown> | null | undefined} seller
+ * @param {Array<{id: string, name?: string, slug?: string, productIds?: string[]}>} groups
+ * @returns
+ *  | { mode: "all" }
+ *  | { mode: "combosOnly" }
+ *  | { mode: "oneGroup", groupId: string, label: string }
+ *  | { mode: "legacyNoGroups", slot: "breakfast"|"lunch"|"dinner"|"specials"|"other" }
+ */
+export function resolveMenuSessionForGroups(seller, groups) {
+  if (!seller) return { mode: "all" };
+  const list = Array.isArray(groups) ? groups : [];
+  const raw0 = seller.menuSession ?? seller.currentMenu ?? seller.activeMenu;
+  if (raw0 == null || !String(raw0).trim()) return { mode: "all" };
+  const raw = String(raw0).trim();
+  const lower = raw.toLowerCase();
+  if (
+    lower === "all" ||
+    lower === "all day" ||
+    lower === "all-day" ||
+    lower === "fullday" ||
+    lower === "full day" ||
+    lower === "everyday" ||
+    lower === "entire" ||
+    lower === "full"
+  ) {
+    return { mode: "all" };
+  }
+
+  const leg = getSellerMenuSession(seller);
+  if (leg.mode === "slot" && leg.slot === "combos") {
+    return { mode: "combosOnly" };
+  }
+  const hasProductMenuGroupCombos = list.some(
+    (g) =>
+      String(g.name || "")
+        .trim()
+        .toLowerCase() === "combos" ||
+      String(g.slug || "")
+        .trim()
+        .toLowerCase() === "combos"
+  );
+  if (lower === "combos" && !hasProductMenuGroupCombos) {
+    return { mode: "combosOnly" };
+  }
+
+  if (list.length) {
+    for (const g of list) {
+      if (g.id && raw === g.id) {
+        return { mode: "oneGroup", groupId: g.id, label: String(g.name || g.slug || "Menu") };
+      }
+    }
+    for (const g of list) {
+      const gs = String(g.slug || "").trim().toLowerCase();
+      if (gs && lower === gs) {
+        return { mode: "oneGroup", groupId: g.id, label: String(g.name || g.slug) };
+      }
+    }
+    for (const g of list) {
+      const gn = String(g.name || "").trim().toLowerCase();
+      if (gn && lower === gn) {
+        return { mode: "oneGroup", groupId: g.id, label: String(g.name) };
+      }
+    }
+    for (const g of list) {
+      const gs = String(g.slug || "").trim().toLowerCase();
+      if (gs && gs.length >= 3 && (lower === gs || lower.startsWith(`${gs} `) || lower.endsWith(` ${gs}`))) {
+        return { mode: "oneGroup", groupId: g.id, label: String(g.name || g.slug) };
+      }
+    }
+  }
+
+  if (leg.mode === "slot" && leg.slot) {
+    if (leg.slot === "combos") {
+      return { mode: "combosOnly" };
+    }
+    if (list.length) {
+      for (const g of list) {
+        const s = String(g.slug || "")
+          .trim()
+          .toLowerCase();
+        if (s && s === String(leg.slot)) {
+          return { mode: "oneGroup", groupId: g.id, label: String(g.name || leg.slot) };
+        }
+        const n = String(g.name || "")
+          .trim()
+          .toLowerCase();
+        if (n && n === String(leg.slot)) {
+          return { mode: "oneGroup", groupId: g.id, label: String(g.name) };
+        }
+        const nSlug = slugifyName(String(g.name || ""));
+        if (nSlug && nSlug === String(leg.slot)) {
+          return { mode: "oneGroup", groupId: g.id, label: String(g.name || leg.slot) };
+        }
+      }
+    } else {
+      if (
+        leg.slot === "breakfast" ||
+        leg.slot === "lunch" ||
+        leg.slot === "dinner" ||
+        leg.slot === "specials" ||
+        leg.slot === "other"
+      ) {
+        return { mode: "legacyNoGroups", slot: leg.slot };
+      }
+    }
+  }
+  if (list.length && (lower.includes("breakfast") || lower.includes("lunch") || lower.includes("dinner"))) {
+    for (const g of list) {
+      const gs = String(g.slug || "").trim().toLowerCase();
+      if (gs && lower.includes(gs) && ["breakfast", "lunch", "dinner"].includes(gs)) {
+        return { mode: "oneGroup", groupId: g.id, label: String(g.name || g.slug) };
+      }
+    }
+  }
+
+  return { mode: "all" };
+}
+
+/**
  * @param {Record<string, unknown>} p
  */
 export function isProductUnavailable(p) {
