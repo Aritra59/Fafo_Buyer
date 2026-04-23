@@ -29,6 +29,7 @@ export default function App() {
               <Route path="/s/:shopSlug" element={<PublicShopPage />} />
               <Route path="/cart" element={<CartPage />} />
               <Route path="/order/thanks" element={<OrderThanksPage />} />
+              <Route path="/order-success" element={<Navigate to="/order/thanks" replace />} />
               <Route path="/order/:orderId/track" element={<OrderTrackPage />} />
               <Route path="/dashboard" element={<GuestDashboardPage />} />
               <Route path="/login" element={<LoginPage />} />
