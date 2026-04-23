@@ -1,0 +1,147 @@
+import {
+  addDoc,
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+import { db } from "../firebase/config";
+
+const ordersCol = () => collection(db, "orders");
+const orderDoc = (id) => doc(db, "orders", id);
+
+/**
+ * @param {{ buyerId?: string, buyerPhone?: string }} keys
+ * @param {(orders: { id: string }[]) => void} onData
+ * @param {(err: Error) => void} onError
+ */
+export function subscribeBuyerOrders(keys, onData, onError) {
+  const buyerId = String(keys.buyerId || "").trim();
+  const buyerPhone = String(keys.buyerPhone || "").trim();
+
+  if (!buyerId && !buyerPhone) {
+    onData([]);
+    return () => {};
+  }
+
+  /** @type {Map<string, { id: string } & Record<string, unknown>>} */
+  const byBuyerId = new Map();
+  /** @type {Map<string, { id: string } & Record<string, unknown>>} */
+  const byPhone = new Map();
+
+  function emit() {
+    const merged = new Map();
+    byBuyerId.forEach((v, k) => merged.set(k, v));
+    byPhone.forEach((v, k) => merged.set(k, v));
+    const list = Array.from(merged.values()).sort((a, b) => {
+      const ta = a.createdAt?.toMillis?.() ?? 0;
+      const tb = b.createdAt?.toMillis?.() ?? 0;
+      return tb - ta;
+    });
+    onData(list);
+  }
+
+  const unsubs = [];
+  if (buyerId) {
+    unsubs.push(
+      onSnapshot(
+        query(ordersCol(), where("buyerId", "==", buyerId)),
+        (snap) => {
+          byBuyerId.clear();
+          snap.docs.forEach((d) => {
+            byBuyerId.set(d.id, { id: d.id, ...d.data() });
+          });
+          emit();
+        },
+        (err) => onError(err instanceof Error ? err : new Error(String(err)))
+      )
+    );
+  }
+  if (buyerPhone) {
+    unsubs.push(
+      onSnapshot(
+        query(ordersCol(), where("buyerPhone", "==", buyerPhone)),
+        (snap) => {
+          byPhone.clear();
+          snap.docs.forEach((d) => {
+            byPhone.set(d.id, { id: d.id, ...d.data() });
+          });
+          emit();
+        },
+        (err) => onError(err instanceof Error ? err : new Error(String(err)))
+      )
+    );
+  }
+
+  return () => {
+    unsubs.forEach((u) => u());
+  };
+}
+
+/**
+ * @param {string} orderId
+ * @param {(o: (Record<string, unknown> & { id: string }) | null) => void} onData
+ * @param {(err: Error) => void} onError
+ */
+export function subscribeOrderById(orderId, onData, onError) {
+  if (!orderId) {
+    onData(null);
+    return () => {};
+  }
+  return onSnapshot(
+    orderDoc(orderId),
+    (snap) => {
+      if (!snap.exists()) onData(null);
+      else onData({ id: snap.id, ...snap.data() });
+    },
+    (e) => onError(e instanceof Error ? e : new Error(String(e)))
+  );
+}
+
+/**
+ * @param {{
+ *   sellerId: string,
+ *   buyerId?: string,
+ *   buyerPhone: string,
+ *   buyerName?: string,
+ *   buyerAddress?: string,
+ *   sellerPhone?: string,
+ *   items: Record<string, unknown>[],
+ *   total: number,
+ *   subtotal?: number,
+ *   savings?: number,
+ *   paymentMode: string,
+ *   source?: string,
+ *   sellerName?: string,
+ *   buyerGuest?: boolean,
+ * }} payload
+ * @returns {Promise<string>} new order document id
+ */
+export async function createOrder(payload) {
+  const ts = serverTimestamp();
+  const ref = await addDoc(ordersCol(), {
+    sellerId: payload.sellerId,
+    sellerName: String(payload.sellerName || "").trim(),
+    buyerId: payload.buyerId || "",
+    buyerPhone: payload.buyerPhone,
+    buyerName: payload.buyerName || "",
+    buyerAddress: payload.buyerAddress || "",
+    buyerGuest: payload.buyerGuest === true,
+    sellerPhone: payload.sellerPhone || "",
+    items: payload.items,
+    total: payload.total,
+    subtotal:
+      payload.subtotal != null ? payload.subtotal : payload.total,
+    savings: payload.savings != null ? payload.savings : 0,
+    paymentMode: payload.paymentMode,
+    source: String(payload.source || "app").trim() || "app",
+    status: "new",
+    createdAt: ts,
+    updatedAt: ts,
+  });
+  await updateDoc(ref, { orderId: ref.id });
+  return ref.id;
+}
