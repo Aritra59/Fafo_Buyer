@@ -18,8 +18,8 @@ import {
   setGuestProfile,
 } from "../../utils/guestProfile";
 import { buildUpiPayUri, copyToClipboard, tryOpenUpiUri } from "../../utils/upi";
-import { sellerAcceptsUpi, sellerAcceptsCod } from "../../utils/sellerPay";
 import { openWhatsAppOrder } from "../../utils/whatsapp";
+import { sellerAcceptsUpi, sellerAcceptsCod } from "../../utils/sellerPay";
 import { getShopOpenUiState } from "../../utils/shopOpenStatus";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -278,6 +278,7 @@ export default function CartPage() {
       setCheckoutOpen(false);
       clear();
       navigate("/order/thanks", {
+        replace: true,
         state: {
           orderId,
           sellerName: sellerNameOut,
@@ -289,7 +290,6 @@ export default function CartPage() {
           paymentMode,
           sellerPhone: String(sellerPhoneRaw || ""),
         },
-        replace: false,
       });
     } catch (err) {
       console.error("Order failed:", err);
@@ -497,7 +497,7 @@ export default function CartPage() {
           onClick={() => setCheckoutOpen(false)}
         >
           <div
-            className="bs-sheet"
+            className="bs-sheet bs-sheet--compact"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === "Escape") setCheckoutOpen(false);
@@ -576,17 +576,17 @@ export default function CartPage() {
                       checked={paymentMode === "cod"}
                       onChange={() => setPaymentMode("cod")}
                     />
-                    Cash on delivery
+                    Cash
                   </label>
                 ) : null}
               </div>
               {paymentMode === "upi" && canUpi ? (
                 <div className="nb-pay-upi-hint" style={{ marginTop: "0.5rem" }}>
                   <p className="nb-muted nb-pay-upi-hint__text">
-                    We open your UPI app with the order amount. If nothing opens, copy the seller UPI ID. You can
-                    send a payment screenshot to the shop from the next screen.
+                    Pay with the seller&apos;s saved UPI ID. Tap <strong>Open UPI</strong> to launch your app with
+                    this cart total. After paying, send your payment proof on WhatsApp so the shop can match it.
                   </p>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                  <div className="nb-pay-upi-actions">
                     <Button
                       type="button"
                       variant="ghost"
@@ -613,30 +613,26 @@ export default function CartPage() {
                         }
                       }}
                     >
-                      Open UPI app
+                      Open UPI
                     </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="nb-btn--sm"
-                      onClick={handleCopyUpi}
-                    >
-                      Copy seller UPI ID
+                    <Button type="button" variant="ghost" className="nb-btn--sm" onClick={handleCopyUpi}>
+                      Copy UPI ID
                     </Button>
-                    {String(liveSeller?.phone || liveSeller?.whatsapp || "").trim() ? (
+                    {String(liveSeller?.whatsapp || liveSeller?.phone || "").trim() ? (
                       <Button
                         type="button"
                         variant="ghost"
                         className="nb-btn--sm"
                         onClick={() => {
                           setError("");
-                          const raw = String(
-                            liveSeller?.whatsapp || liveSeller?.phone || ""
-                          );
-                          const sn = String(
-                            liveSeller?.shopName || liveSeller?.name || "this shop"
-                          );
-                          const msg = `Hi, I placed order at ${sn}. Sending payment proof.`;
+                          const raw = String(liveSeller?.whatsapp || liveSeller?.phone || "");
+                          const sn = String(liveSeller?.shopName || liveSeller?.name || "this shop");
+                          const msg = `Hi — UPI payment proof for FaFo at ${sn}.
+
+Cart total: ₹${Number(total).toFixed(0)}
+(I'm about to place / have placed the order in the app — sending payment screenshot.)
+
+Thank you.`;
                           try {
                             openWhatsAppOrder(raw, msg);
                           } catch (e) {

@@ -1,4 +1,5 @@
 import {
+  getShopOpenUiState,
   resolveShopOpenNow as resolveShopOpenNowFromSeller,
 } from "./shopOpenStatus";
 
@@ -108,4 +109,47 @@ export function formatSellerHoursDisplay(seller) {
   if (!a && !b) return "Timings not set";
   if (a && b) return `${a} – ${b}`;
   return a || b;
+}
+
+/**
+ * Short open–close line for the menu header, e.g. "12–4" (12h, no :00 if on the hour).
+ * @param {Record<string, unknown> | null | undefined} seller
+ * @returns {string | null}
+ */
+export function formatSellerHoursCompact(seller) {
+  const aRaw = seller?.openingTime ?? seller?.openTime;
+  const bRaw = seller?.closingTime ?? seller?.closeTime;
+  const a = aRaw != null ? String(aRaw).trim() : "";
+  const b = bRaw != null ? String(bRaw).trim() : "";
+  if (!a || !b) return null;
+  const aMin = parseTimeToMinutes(a);
+  const bMin = parseTimeToMinutes(b);
+  if (aMin == null || bMin == null) return null;
+  const fmt = (m) => {
+    const h24 = Math.floor(m / 60) % 24;
+    const min = m % 60;
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+    if (min > 0) return `${h12}:${String(min).padStart(2, "0")}`;
+    return String(h12);
+  };
+  return `${fmt(aMin)}–${fmt(bMin)}`;
+}
+
+/**
+ * When the shop is closed, friendly line for the storefront (e.g. "Opens at 7:00 PM").
+ * @param {Record<string, unknown> | null | undefined} seller
+ * @param {Date} [now]
+ * @returns {string | null}
+ */
+export function formatSellerOpensAtMessage(seller, now = new Date()) {
+  if (!seller) return null;
+  if (getShopOpenUiState(seller, now) === "open") return null;
+  const openM = parseTimeToMinutes(seller.openingTime ?? seller.openTime);
+  if (openM == null) return null;
+  const h = Math.floor(openM / 60) % 24;
+  const mi = openM % 60;
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const mm = mi > 0 ? `:${String(mi).padStart(2, "0")}` : "";
+  return `Opens at ${h12}${mm} ${period}`;
 }

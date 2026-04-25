@@ -1,4 +1,5 @@
 import { isDiscountSectionProduct } from "./pricing";
+import { extractMenuComboIds, extractMenuProductIds } from "./menuAssignment";
 
 /**
  * @typedef {"breakfast"|"lunch"|"dinner"|"specials"|"other"} MenuSlot
@@ -267,6 +268,195 @@ export function resolveMenuSessionForGroups(seller, groups) {
   }
 
   return { mode: "all" };
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} seller
+ * @returns {boolean}
+ */
+function hasMenuSessionString(seller) {
+  if (!seller) return false;
+  const raw = seller.menuSession ?? seller.currentMenu ?? seller.activeMenu;
+  return raw != null && String(raw).trim() !== "";
+}
+
+/**
+ * Live menu for buyers: use Firebase `menuSession` / `activeMenu` when set, else time-of-day schedule
+ * (when the seller is not in manual-override mode). Respects the same one-group / combos / legacy
+ * resolution as `resolveMenuSessionForGroups` when a session string is present.
+ *
+ * @param {Record<string, unknown> | null | undefined} seller
+ * @param {Array<{ id?: string, name?: string, slug?: string, sortOrder?: number }>} groups
+ * @param {Date} [now]
+ * @returns
+ *  | { mode: "all" }
+ *  | { mode: "combosOnly" }
+ *  | { mode: "oneGroup", groupId: string, label: string }
+ *  | { mode: "legacyNoGroups", slot: "breakfast"|"lunch"|"dinner"|"specials"|"other" }
+ */
+export function resolveEffectiveMenuSession(seller, groups, now = new Date()) {
+  if (!seller) return { mode: "all" };
+  const list = Array.isArray(groups) ? groups : [];
+  if (isSellerMenuManualOverride(seller) || hasMenuSessionString(seller)) {
+    return resolveMenuSessionForGroups(seller, list);
+  }
+  if (list.length === 0) {
+    const leg = getSellerMenuSession(seller);
+    if (leg.mode === "slot" && leg.slot === "combos") {
+      return { mode: "combosOnly" };
+    }
+    if (
+      leg.mode === "slot" &&
+      leg.slot &&
+      (leg.slot === "breakfast" || leg.slot === "lunch" || leg.slot === "dinner" || leg.slot === "specials" || leg.slot === "other")
+    ) {
+      return { mode: "legacyNoGroups", slot: leg.slot };
+    }
+    return { mode: "all" };
+  }
+  const gid = getSchedulePreferredMenuGroupId(list, now);
+  if (!gid) return { mode: "all" };
+  const g = list.find((x) => String(x.id) === String(gid));
+  if (!g || !g.id) return { mode: "all" };
+  if (String(g.name || "").trim().toLowerCase() === "combos" || String(g.slug || "").trim().toLowerCase() === "combos") {
+    return { mode: "combosOnly" };
+  }
+  const pCount = extractMenuProductIds(/** @type {Record<string, unknown>} */ (g)).length;
+  const cCount = extractMenuComboIds(/** @type {Record<string, unknown>} */ (g)).length;
+  if (pCount === 0 && cCount > 0) {
+    const n = `${String(g.name || "")} ${String(g.slug || "")}`.trim().toLowerCase();
+    if (n.includes("combo")) return { mode: "combosOnly" };
+  }
+  return { mode: "oneGroup", groupId: String(g.id), label: String(g.name || g.slug || "Menu") };
+}
+
+/**
+ * @param {Array<Record<string, unknown>>} products
+ * @param {string} menuLabel — fallback for uncategorized
+ * @returns {{ id: string, label: string }[]}
+ */
+export function categoryPillsFromProducts(products, menuLabel = "Menu") {
+  if (!Array.isArray(products) || products.length === 0) return [];
+  const seen = new Set();
+  const out = /** @type {{ id: string, label: string }[]} */ ([]);
+  for (const p of products) {
+    const raw = p?.category ?? p?.cuisine ?? p?.menuCategory ?? p?.section ?? p?.type ?? "";
+    const label = String(raw).trim() || String(menuLabel).trim() || "Menu";
+    if (seen.has(label)) continue;
+    seen.add(label);
+    out.push({
+      id: `cat__${out.length}_${label}`.replace(/\s+/g, "_"),
+      label,
+    });
+  }
+  out.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  return out;
+}
+
+/**
+ * When true, buyer respects seller `menuSession` / active menu locking.
+ * When false, full menus stay visible and time-of-day only picks the default tab.
+ * @param {Record<string, unknown> | null | undefined} seller
+ * @returns {boolean}
+ */
+export function isSellerMenuManualOverride(seller) {
+  if (!seller) return false;
+  if (
+    seller.menuManualOverride === true ||
+    seller.menuSessionManual === true ||
+    seller.menuOverrideManual === true ||
+    seller.activeMenuManual === true ||
+    seller.manualMenuSession === true
+  ) {
+    return true;
+  }
+  const raw = seller.menuSessionSource ?? seller.menuSessionMode ?? seller.activeMenuSource;
+  if (typeof raw === "string") {
+    const s = raw.trim().toLowerCase();
+    if (s === "manual" || s === "override" || s === "locked") return true;
+    if (s === "schedule" || s === "auto" || s === "automatic") return false;
+  }
+  return false;
+}
+
+/**
+ * Breakfast / lunch / dinner first, then other menus by `sortOrder`.
+ * @param {Array<{ id?: string, name?: string, slug?: string, sortOrder?: number }>} groups
+ */
+export function sortMenuGroupsForBuyerTabs(groups) {
+  const list = Array.isArray(groups) ? [...groups] : [];
+  const mealRank = (g) => {
+    const n = `${String(g?.name || "")} ${String(g?.slug || "")}`.trim().toLowerCase();
+    if (n.includes("breakfast") || n.includes("brunch") || n.includes("morning")) return 0;
+    if (n.includes("lunch")) return 1;
+    if (n.includes("dinner") || n.includes("supper") || n.includes("evening")) return 2;
+    return 10 + (Number(g?.sortOrder) || 0) / 1_000_000;
+  };
+  list.sort((a, b) => {
+    const ra = mealRank(a);
+    const rb = mealRank(b);
+    if (ra !== rb) return ra - rb;
+    return (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0);
+  });
+  return list;
+}
+
+/**
+ * Local device time — picks a menu tab to show first when seller is on schedule mode.
+ * @param {Array<{ id?: string, name?: string, slug?: string }>} groups
+ * @param {Date} [now]
+ * @returns {string | null}
+ */
+export function getSchedulePreferredMenuGroupId(groups, now = new Date()) {
+  const list = Array.isArray(groups) ? groups : [];
+  if (!list.length) return null;
+  const h = now.getHours() + now.getMinutes() / 60;
+  let want = "dinner";
+  if (h >= 5 && h < 11) want = "breakfast";
+  else if (h >= 11 && h < 16) want = "lunch";
+  else if (h >= 16 && h < 23) want = "dinner";
+  else want = "late";
+  const find = (key) => {
+    for (const g of list) {
+      const n = `${String(g.name || "")} ${String(g.slug || "")}`.toLowerCase();
+      if (key === "breakfast" && (n.includes("breakfast") || n.includes("brunch") || n.includes("morning"))) {
+        return g.id ? String(g.id) : null;
+      }
+      if (key === "lunch" && n.includes("lunch")) return g.id ? String(g.id) : null;
+      if (
+        key === "dinner" &&
+        (n.includes("dinner") || n.includes("supper") || n.includes("evening"))
+      ) {
+        return g.id ? String(g.id) : null;
+      }
+      if (key === "late" && (n.includes("dinner") || n.includes("late") || n.includes("night"))) {
+        return g.id ? String(g.id) : null;
+      }
+    }
+    return null;
+  };
+  if (want === "late") return find("late") || find("dinner") || (list[0].id ? String(list[0].id) : null);
+  return find(want) || (list[0].id ? String(list[0].id) : null);
+}
+
+/**
+ * Menu names/slugs that match the search query (for cross-menu search).
+ * @param {Array<{ id?: string, name?: string, slug?: string }>} groups
+ * @param {string} q
+ */
+export function groupIdsMatchingMenuSearch(groups, q) {
+  const t = String(q || "").trim().toLowerCase();
+  const out = new Set();
+  if (!t || !Array.isArray(groups)) return out;
+  for (const g of groups) {
+    const id = g.id != null ? String(g.id) : "";
+    if (!id) continue;
+    const n = String(g.name || "").trim().toLowerCase();
+    const s = String(g.slug || "").trim().toLowerCase();
+    if (n.includes(t) || s.includes(t)) out.add(id);
+    else if (t.length >= 4 && n && t.includes(n)) out.add(id);
+  }
+  return out;
 }
 
 /**

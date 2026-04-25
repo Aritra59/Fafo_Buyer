@@ -9,7 +9,8 @@ const productsCol = () => collection(db, "products");
  * @param {(err: Error) => void} onError
  */
 export function subscribeProductsBySeller(sellerId, onData, onError) {
-  const q = query(productsCol(), where("sellerId", "==", sellerId));
+  const sid = String(sellerId || "").trim();
+  const q = query(productsCol(), where("sellerId", "==", sid));
   return onSnapshot(
     q,
     (snap) => {

@@ -13,7 +13,8 @@ export function subscribeCombosBySeller(sellerId, onData, onError) {
     onData([]);
     return () => {};
   }
-  const q = query(combosCol(), where("sellerId", "==", sellerId));
+  const sid = String(sellerId || "").trim();
+  const q = query(combosCol(), where("sellerId", "==", sid));
   return onSnapshot(
     q,
     (snap) => {

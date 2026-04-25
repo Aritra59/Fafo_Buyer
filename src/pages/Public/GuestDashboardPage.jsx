@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuthProfile } from "../../context/AuthProfileContext";
 import { useBuyerOrders } from "../../context/BuyerOrdersContext";
@@ -6,6 +6,7 @@ import { getRecentShops, getGuestProfile } from "../../utils/guestProfile";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
+import OtpDiscoverModal from "../../components/OtpDiscoverModal";
 
 /**
  * Guest + signed-in buyer home: orders, track links, recents, app shortcuts.
@@ -16,6 +17,7 @@ export default function GuestDashboardPage() {
   const { orders, loading: ordersLoading, error: ordersError } = useBuyerOrders();
   const guest = getGuestProfile();
   const recent = getRecentShops();
+  const [discoverOpen, setDiscoverOpen] = useState(false);
 
   const sorted = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -153,30 +155,64 @@ export default function GuestDashboardPage() {
 
       <section className="nb-section">
         <h2 className="nb-section-title nb-section-title--neon">More</h2>
-        <div className="nb-app-grid nb-app-grid--home" style={{ marginTop: "0.5rem" }}>
-          {user && profileComplete ? (
-            <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/orders">
-              <span className="nb-app-tile__name">Full order history</span>
-              <span className="nb-app-tile__meta">Signed-in orders</span>
+        {!user ? (
+          <div className="nb-guest-gate nb-guest-gate--dashboard">
+            <div className="nb-guest-gate__blur">
+              <div className="nb-app-grid nb-app-grid--home" style={{ marginTop: "0.5rem" }}>
+                <div className="nb-app-tile nb-card--neon nb-app-tile--ghost">
+                  <span className="nb-app-tile__name">Browse shops</span>
+                  <span className="nb-app-tile__meta">Nearby list</span>
+                </div>
+                <div className="nb-app-tile nb-card--neon nb-app-tile--ghost">
+                  <span className="nb-app-tile__name">Full order history</span>
+                  <span className="nb-app-tile__meta">All devices</span>
+                </div>
+                <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/">
+                  <span className="nb-app-tile__name">Home</span>
+                  <span className="nb-app-tile__meta">Enter shop code or QR</span>
+                </Link>
+              </div>
+            </div>
+            <div className="nb-guest-gate__overlay">
+              <p className="nb-guest-gate__text">Login to explore more shops</p>
+              <Button type="button" className="nb-guest-gate__btn" onClick={() => setDiscoverOpen(true)}>
+                Get OTP to discover nearby shops
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="nb-app-grid nb-app-grid--home" style={{ marginTop: "0.5rem" }}>
+            {user && profileComplete ? (
+              <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/orders">
+                <span className="nb-app-tile__name">Full order history</span>
+                <span className="nb-app-tile__meta">Signed-in orders</span>
+              </Link>
+            ) : null}
+            <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/">
+              <span className="nb-app-tile__name">Home</span>
+              <span className="nb-app-tile__meta">Enter shop code or QR</span>
             </Link>
-          ) : null}
-          <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/">
-            <span className="nb-app-tile__name">Home</span>
-            <span className="nb-app-tile__meta">Enter shop code or QR</span>
-          </Link>
-          {user && profileComplete ? (
-            <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/shops">
-              <span className="nb-app-tile__name">Browse shops</span>
-              <span className="nb-app-tile__meta">List view</span>
-            </Link>
-          ) : (
-            <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/login">
-              <span className="nb-app-tile__name">Sign in</span>
-              <span className="nb-app-tile__meta">Optional full account</span>
-            </Link>
-          )}
-        </div>
+            {user && profileComplete ? (
+              <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/shops">
+                <span className="nb-app-tile__name">Browse shops</span>
+                <span className="nb-app-tile__meta">List view</span>
+              </Link>
+            ) : (
+              <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/login">
+                <span className="nb-app-tile__name">Sign in</span>
+                <span className="nb-app-tile__meta">Optional full account</span>
+              </Link>
+            )}
+          </div>
+        )}
       </section>
+
+      <OtpDiscoverModal
+        open={discoverOpen}
+        onClose={() => setDiscoverOpen(false)}
+        initialPhone={guest?.phone || ""}
+        variant="shops"
+      />
     </div>
   );
 }

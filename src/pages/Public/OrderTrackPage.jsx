@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { subscribeOrderById } from "../../services/orderService";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -93,11 +94,12 @@ export default function OrderTrackPage() {
 
   if (!orderId) {
     return (
-      <div className="nb-page">
+      <div className="nb-page nb-track">
         <p className="nb-field__error">Invalid link.</p>
-        <Link className="nb-inline-link" to="/">
-          Home
-        </Link>
+        <button type="button" className="nb-btn nb-btn--ghost nb-track-back" onClick={() => navigate("/explore")}>
+          <ArrowLeft size={18} strokeWidth={2} aria-hidden />
+          Back
+        </button>
       </div>
     );
   }
@@ -139,9 +141,10 @@ export default function OrderTrackPage() {
           >
             View status
           </Button>
-          <Link className="nb-inline-link" to="/" style={{ marginTop: "1rem", display: "inline-block" }}>
-            Home
-          </Link>
+          <button type="button" className="nb-btn nb-btn--ghost nb-track-back" style={{ marginTop: "1rem" }} onClick={() => navigate("/explore")}>
+            <ArrowLeft size={18} strokeWidth={2} aria-hidden />
+            Back
+          </button>
         </Card>
       </div>
     );
@@ -156,9 +159,10 @@ export default function OrderTrackPage() {
             Add <code className="nb-code">?phone=</code> with the number you used
             to place the order, or use the full link from your confirmation.
           </p>
-          <Link className="nb-inline-link" to="/" style={{ marginTop: "0.75rem", display: "inline-block" }}>
-            Home
-          </Link>
+          <button type="button" className="nb-btn nb-btn--ghost nb-track-back" style={{ marginTop: "0.75rem" }} onClick={() => navigate("/explore")}>
+            <ArrowLeft size={18} strokeWidth={2} aria-hidden />
+            Back
+          </button>
         </Card>
       </div>
     );
@@ -243,9 +247,10 @@ export default function OrderTrackPage() {
         <p className="nb-muted" style={{ marginTop: "1.25rem", fontSize: "0.9rem" }}>
           Updates are live. Keep this page open to see changes.
         </p>
-        <Link className="nb-inline-link" to="/" style={{ marginTop: "1rem", display: "inline-block" }}>
-          Home
-        </Link>
+        <button type="button" className="nb-btn nb-btn--ghost nb-track-back" style={{ marginTop: "1rem" }} onClick={() => navigate("/explore")}>
+          <ArrowLeft size={18} strokeWidth={2} aria-hidden />
+          Back
+        </button>
       </Card>
     </div>
   );

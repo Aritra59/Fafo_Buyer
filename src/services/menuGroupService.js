@@ -15,6 +15,8 @@ const col = () => collection(db, "menuGroups");
  *  name?: string,
  *  slug?: string,
  *  productIds?: string[],
+ *  comboIds?: string[],
+ *  items?: unknown[],
  *  active?: boolean,
  *  sortOrder?: number
  * }} MenuGroupDoc
@@ -32,19 +34,24 @@ export function subscribeMenuGroupsBySeller(sellerId, onData, onError) {
     onData([]);
     return () => {};
   }
-  const q = query(col(), where("sellerId", "==", String(sellerId).trim()));
+  const sid = String(sellerId || "").trim();
+  const q = query(col(), where("sellerId", "==", sid));
   return onSnapshot(
     q,
     (snap) => {
       const list = snap.docs
         .map((d) => {
           const data = d.data() || {};
+          const comboRaw = data.comboIds ?? data.combo_ids ?? data.comboIDList;
+          const itemsRaw = data.items ?? data.menuItems ?? data.products;
           return /** @type {MenuGroupDoc} */ ({
             id: d.id,
             sellerId: data.sellerId,
             name: data.name,
             slug: data.slug,
             productIds: Array.isArray(data.productIds) ? data.productIds : [],
+            comboIds: Array.isArray(comboRaw) ? comboRaw.map((x) => String(x)) : [],
+            items: Array.isArray(itemsRaw) ? itemsRaw : [],
             active: data.active,
             sortOrder: data.sortOrder,
           });
