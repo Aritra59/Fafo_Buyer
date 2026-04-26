@@ -62,7 +62,7 @@ export default function GuestDashboardPage() {
           </p>
         ) : !user ? (
           <p className="nb-muted" style={{ marginTop: "0.5rem" }}>
-            <Link className="nb-inline-link" to="/">
+            <Link className="nb-inline-link" to="/explore">
               Find a shop
             </Link>{" "}
             to order — we&apos;ll save your name and phone after the first order.
@@ -78,8 +78,8 @@ export default function GuestDashboardPage() {
         {!ordersLoading && sorted.length === 0 ? (
           <Card className="nb-card--neon">
             <p className="nb-muted">No orders yet. Open a shop from the home page and add items to your cart.</p>
-            <Link to="/" className="nb-inline-link">
-              Home
+            <Link to="/explore" className="nb-inline-link">
+              Explore
             </Link>
           </Card>
         ) : null}
@@ -167,9 +167,9 @@ export default function GuestDashboardPage() {
                   <span className="nb-app-tile__name">Full order history</span>
                   <span className="nb-app-tile__meta">All devices</span>
                 </div>
-                <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/">
-                  <span className="nb-app-tile__name">Home</span>
-                  <span className="nb-app-tile__meta">Enter shop code or QR</span>
+                <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/enter-shop">
+                  <span className="nb-app-tile__name">Enter shop code</span>
+                  <span className="nb-app-tile__meta">From QR or link</span>
                 </Link>
               </div>
             </div>
@@ -188,9 +188,9 @@ export default function GuestDashboardPage() {
                 <span className="nb-app-tile__meta">Signed-in orders</span>
               </Link>
             ) : null}
-            <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/">
-              <span className="nb-app-tile__name">Home</span>
-              <span className="nb-app-tile__meta">Enter shop code or QR</span>
+            <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/enter-shop">
+              <span className="nb-app-tile__name">Enter shop code</span>
+              <span className="nb-app-tile__meta">From QR or link</span>
             </Link>
             {user && profileComplete ? (
               <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/shops">

@@ -126,8 +126,8 @@ export default function PublicShopPage() {
             <Button type="button" onClick={() => setRetryToken((n) => n + 1)}>
               Retry
             </Button>
-            <Link className="nb-inline-link" to="/">
-              Back to home
+            <Link className="nb-inline-link" to="/explore">
+              Back to Explore
             </Link>
           </div>
         </Card>
@@ -146,8 +146,8 @@ export default function PublicShopPage() {
             We could not find a shop for this code or link. Check for a typo, or scan the QR
             again.
           </p>
-          <Link className="nb-inline-link" to="/" style={{ display: "inline-block", marginTop: "1rem" }}>
-            Back to home
+          <Link className="nb-inline-link" to="/explore" style={{ display: "inline-block", marginTop: "1rem" }}>
+            Back to Explore
           </Link>
         </Card>
       </div>
@@ -156,7 +156,7 @@ export default function PublicShopPage() {
 
   return (
     <div className="bs-public-shop">
-      <ShopCatalogView sellerId={sellerId} backTo="/" backLabel="Home" isPublic />
+      <ShopCatalogView sellerId={sellerId} backTo="/explore" backLabel="Home" isPublic />
     </div>
   );
 }

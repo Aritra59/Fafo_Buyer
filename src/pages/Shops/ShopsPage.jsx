@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { useAuthProfile } from "../../context/AuthProfileContext";
 import { subscribeAllSellers } from "../../services/sellerService";
 import NearbyShopsSection from "../../components/NearbyShopsSection.jsx";
@@ -39,7 +40,8 @@ export default function ShopsPage() {
       <header className="nb-page-header nb-page-header--row">
         <div>
           <Link className="nb-back" to="/explore">
-            ← Home
+            <ArrowLeft size={16} strokeWidth={2} aria-hidden />
+            Home
           </Link>
           <h1 className="nb-page-title">FaFo shops</h1>
           <p className="nb-page-desc">

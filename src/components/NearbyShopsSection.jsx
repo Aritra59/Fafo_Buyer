@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
+import { Truck } from "lucide-react";
 import { getDistance } from "../utils/haversine";
 import { normalizeLocation } from "../utils/location";
 import { formatDistanceKm } from "../utils/format";
@@ -18,7 +19,7 @@ const BROWSE_CAP = 32;
  */
 function shopListPath(seller, user) {
   const p = getPublicMenuPath(seller);
-  if (p && p !== "/") return p;
+  if (p) return p;
   if (user) return `/shops/${seller.id}`;
   return null;
 }
@@ -26,34 +27,7 @@ function shopListPath(seller, user) {
 function DeliveryBadge() {
   return (
     <span className="nb-delivery-badge" title="Delivery available">
-      <svg
-        className="nb-delivery-badge__icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden
-      >
-        <path
-          d="M4 16v2a1 1 0 001 1h1m10-3v2a1 1 0 01-1 1h-1m-6 0h4"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-        <circle cx="7" cy="19" r="1.5" fill="currentColor" />
-        <circle cx="17" cy="19" r="1.5" fill="currentColor" />
-        <path
-          d="M3 11h3l2-4h6v8H3V11z"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M14 7h3l2 4v4h-5V7z"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-      </svg>
+      <Truck className="nb-delivery-badge__icon" size={14} strokeWidth={2} aria-hidden />
       Delivery
     </span>
   );

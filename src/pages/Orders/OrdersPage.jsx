@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, Circle } from "lucide-react";
 import { useBuyerOrders } from "../../context/BuyerOrdersContext";
 import { useCart } from "../../context/CartContext";
 import { getSellerById } from "../../services/sellerService";
@@ -145,7 +146,8 @@ export default function OrdersPage() {
     <div className="nb-page nb-page--browse">
       <header className="nb-page-header">
         <Link className="nb-back" to="/explore">
-          ← Home
+          <ArrowLeft size={16} strokeWidth={2} aria-hidden />
+          Home
         </Link>
         <h1 className="nb-page-title">My orders</h1>
         <p className="nb-page-desc">Live status from the shop.</p>
@@ -208,7 +210,14 @@ export default function OrdersPage() {
                   {isReady ? (
                     <div className="nb-order-ready">
                       <p className="nb-order-ready__title">
-                        🟢 Your order is ready
+                        <Circle
+                          className="nb-order-ready__status-ic"
+                          size={11}
+                          fill="#22c55e"
+                          stroke="#22c55e"
+                          aria-hidden
+                        />
+                        Your order is ready
                       </p>
                       <p className="nb-muted nb-order-ready__sub">
                         Message or call the shop for pickup or delivery.

@@ -25,7 +25,8 @@ export default function App() {
         <CartProvider>
           <BrowserRouter>
             <Routes>
-              <Route path="/" element={<PublicHomePage />} />
+              <Route path="/" element={<Navigate to="/explore" replace />} />
+              <Route path="/enter-shop" element={<PublicHomePage />} />
               <Route path="/shop/:shopCode" element={<PublicShopPage />} />
               <Route path="/s/:shopSlug" element={<PublicShopPage />} />
               <Route path="/cart" element={<CartPage />} />
@@ -45,7 +46,7 @@ export default function App() {
                 <Route path="orders" element={<OrdersPage />} />
                 <Route path="profile" element={<ProfilePage />} />
               </Route>
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<Navigate to="/explore" replace />} />
             </Routes>
           </BrowserRouter>
         </CartProvider>

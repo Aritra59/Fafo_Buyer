@@ -21,11 +21,11 @@ import { LazyImage } from "../../components/ui/LazyImage";
 
 const MAX_KM = 10;
 
-function ExploreUnlockedShopCard({ seller }) {
+function ExploreUnlockedShopCard({ seller, guestRecent }) {
   const name = seller.shopName || seller.name || "Shop";
   const img = typeof seller.imageUrl === "string" ? seller.imageUrl.trim() : "";
   const to = getPublicMenuPath(seller);
-  if (!to || to === "/") return null;
+  if (!to) return null;
   return (
     <Link className="nb-shop-card-link" to={to}>
       <article className="nb-shop-card nb-card--neon nb-shop-card--guest-unlock">
@@ -39,7 +39,9 @@ function ExploreUnlockedShopCard({ seller }) {
         />
         <div className="nb-shop-card__body">
           <h2 className="nb-shop-card__title">{name}</h2>
-          <p className="nb-shop-card__tap-hint nb-muted">Your shop · open menu</p>
+          <p className="nb-shop-card__tap-hint nb-muted">
+            {guestRecent ? "Open menu" : "Your shop · open menu"}
+          </p>
         </div>
       </article>
     </Link>
@@ -190,29 +192,44 @@ export default function ExplorePage() {
         </div>
         <div className="nb-home-header__actions">
           {user ? (
-            <Link className="nb-pill-link nb-pill-link--neon" to="/profile">
-              Profile
-            </Link>
-          ) : null}
-          {user ? (
-            <Link className="nb-pill-link nb-pill-link--neon" to="/orders">
-              Orders
-            </Link>
-          ) : null}
-          {user ? (
-            <Link className="nb-pill-link nb-pill-link--neon" to="/cart">
-              Cart{lineCount > 0 ? ` (${lineCount})` : ""}
-            </Link>
-          ) : null}
-          {!user ? (
-            <Link className="nb-pill-link nb-pill-link--ghost" to="/login">
-              Sign in
-            </Link>
-          ) : null}
+            <>
+              <Link className="nb-pill-link nb-pill-link--neon" to="/profile">
+                Profile
+              </Link>
+              <Link className="nb-pill-link nb-pill-link--neon" to="/orders">
+                Orders
+              </Link>
+              <Link className="nb-pill-link nb-pill-link--neon" to="/cart">
+                Cart{lineCount > 0 ? ` (${lineCount})` : ""}
+              </Link>
+            </>
+          ) : (
+            <div className="nb-home-header__guest-row">
+              {latest && !ordersLoading ? (
+                <button
+                  type="button"
+                  className="nb-explore-order-chip"
+                  aria-label={`Track order — ${String(latest.sellerName || "recent order")}`}
+                  onClick={() => {
+                    const p = String(latest.buyerPhone || "");
+                    const phoneQ = p ? `?phone=${encodeURIComponent(p)}` : "";
+                    navigate(
+                      `/order/${encodeURIComponent(latest.id)}/track${phoneQ}`
+                    );
+                  }}
+                >
+                  Track
+                </button>
+              ) : null}
+              <Link className="nb-pill-link nb-pill-link--ghost" to="/login">
+                Sign in
+              </Link>
+            </div>
+          )}
         </div>
       </header>
 
-      {latest && !ordersLoading ? (
+      {latest && !ordersLoading && user ? (
         <section className="nb-section">
           <h2 className="nb-section-title nb-section-title--neon">Latest order</h2>
           <Card className="nb-order-hero nb-card--neon">
@@ -253,46 +270,89 @@ export default function ExplorePage() {
         />
       </label>
 
-      {!user && guestUnlockSeller ? (
-        <section className="nb-section">
-          <h2 className="nb-section-title nb-section-title--neon">Your shop</h2>
-          <ul className="nb-shop-grid">
-            <li>
-              <ExploreUnlockedShopCard seller={guestUnlockSeller} />
-            </li>
-          </ul>
-        </section>
-      ) : null}
+      {!user ? (
+        <>
+          <section className="nb-section">
+            <h2 className="nb-section-title nb-section-title--neon">Nearby shops</h2>
+            {shopErr ? <p className="nb-field__error">{shopErr}</p> : null}
+            <div className="nb-guest-gate nb-guest-gate--explore">
+              <div className="nb-guest-gate__blur">
+                <NearbyShopsSection
+                  user={user}
+                  search={search}
+                  sellersLoading={sellersLoading}
+                  sellers={sellersForGuestBlur}
+                  showBrowseAll
+                />
+              </div>
+              <div className="nb-guest-gate__overlay">
+                <p className="nb-guest-gate__text">Login to explore more shops</p>
+                <Button
+                  type="button"
+                  className="nb-guest-gate__btn"
+                  onClick={() => {
+                    setDiscoverVariant("shops");
+                    setDiscoverOpen(true);
+                  }}
+                >
+                  Get OTP to discover nearby shops
+                </Button>
+              </div>
+            </div>
+          </section>
 
-      <section className="nb-section">
-        <h2 className="nb-section-title nb-section-title--neon">Nearby shops</h2>
-        {shopErr ? <p className="nb-field__error">{shopErr}</p> : null}
-        {!user ? (
-          <div className="nb-guest-gate nb-guest-gate--explore">
-            <div className="nb-guest-gate__blur">
-              <NearbyShopsSection
-                user={user}
-                search={search}
-                sellersLoading={sellersLoading}
-                sellers={sellersForGuestBlur}
-                showBrowseAll
-              />
+          <section className="nb-section">
+            <h2 className="nb-section-title nb-section-title--neon">More apps</h2>
+            <p className="nb-muted" style={{ margin: "0 0 0.5rem" }}>
+              <Link className="nb-inline-link" to="/track">
+                Track an order with your phone
+              </Link>{" "}
+              — no login required
+            </p>
+            <div className="nb-guest-gate nb-guest-gate--explore">
+              <div className="nb-guest-gate__blur">
+                <div className="nb-app-grid nb-app-grid--home">
+                  <div className="nb-app-tile nb-app-tile--ghost nb-card--neon">
+                    <span className="nb-app-tile__name">FaFo list</span>
+                    <span className="nb-app-tile__meta">Full-screen shop list</span>
+                  </div>
+                  <div className="nb-app-tile nb-app-tile--ghost nb-card--neon">
+                    <span className="nb-app-tile__name">Enter shop code</span>
+                    <span className="nb-app-tile__meta">From QR or link</span>
+                  </div>
+                  <div className="nb-app-tile nb-app-tile--ghost nb-card--neon">
+                    <span className="nb-app-tile__name">Track with phone</span>
+                    <span className="nb-app-tile__meta">No login</span>
+                  </div>
+                  <div
+                    className="nb-app-tile nb-app-tile--disabled nb-card--neon"
+                    aria-disabled="true"
+                  >
+                    <span className="nb-app-tile__name">Groceries</span>
+                    <span className="nb-app-tile__meta">Soon</span>
+                  </div>
+                </div>
+              </div>
+              <div className="nb-guest-gate__overlay">
+                <p className="nb-guest-gate__text">Login to explore more apps</p>
+                <Button
+                  type="button"
+                  className="nb-guest-gate__btn"
+                  onClick={() => {
+                    setDiscoverVariant("apps");
+                    setDiscoverOpen(true);
+                  }}
+                >
+                  Get OTP to discover nearby apps
+                </Button>
+              </div>
             </div>
-            <div className="nb-guest-gate__overlay">
-              <p className="nb-guest-gate__text">Login to explore more shops</p>
-              <Button
-                type="button"
-                className="nb-guest-gate__btn"
-                onClick={() => {
-                  setDiscoverVariant("shops");
-                  setDiscoverOpen(true);
-                }}
-              >
-                Get OTP to discover nearby shops
-              </Button>
-            </div>
-          </div>
-        ) : (
+          </section>
+        </>
+      ) : (
+        <section className="nb-section">
+          <h2 className="nb-section-title nb-section-title--neon">Nearby shops</h2>
+          {shopErr ? <p className="nb-field__error">{shopErr}</p> : null}
           <NearbyShopsSection
             user={user}
             search={search}
@@ -300,8 +360,19 @@ export default function ExplorePage() {
             sellers={sellers}
             showBrowseAll
           />
-        )}
-      </section>
+        </section>
+      )}
+
+      {!user && guestUnlockSeller ? (
+        <section className="nb-section">
+          <h2 className="nb-section-title nb-section-title--neon">Recent</h2>
+          <ul className="nb-shop-grid">
+            <li>
+              <ExploreUnlockedShopCard seller={guestUnlockSeller} guestRecent />
+            </li>
+          </ul>
+        </section>
+      ) : null}
 
       {user && search.trim().length >= 2 ? (
         <section className="nb-section">
@@ -318,7 +389,7 @@ export default function ExplorePage() {
             <ul className="nb-search-hit-list">
               {productHits.map((p) => {
                 const s = p.sellerId && sellerById.get(p.sellerId);
-                const to = s ? getPublicMenuPath(s) : "/";
+                const to = s ? getPublicMenuPath(s) || "/explore" : "/explore";
                 return (
                   <li key={p.id}>
                     <Link className="nb-search-hit nb-card--neon" to={to}>
@@ -333,62 +404,15 @@ export default function ExplorePage() {
         </section>
       ) : null}
 
-      <section className="nb-section">
-        <h2 className="nb-section-title nb-section-title--neon">More apps</h2>
-        {!user ? (
-          <p className="nb-muted" style={{ margin: "0 0 0.5rem" }}>
-            <Link className="nb-inline-link" to="/track">
-              Track an order with your phone
-            </Link>{" "}
-            — no login required
-          </p>
-        ) : null}
-        {!user ? (
-          <div className="nb-guest-gate nb-guest-gate--explore">
-            <div className="nb-guest-gate__blur">
-              <div className="nb-app-grid nb-app-grid--home">
-                <div className="nb-app-tile nb-app-tile--ghost nb-card--neon">
-                  <span className="nb-app-tile__name">FaFo list</span>
-                  <span className="nb-app-tile__meta">Full-screen shop list</span>
-                </div>
-                <div className="nb-app-tile nb-app-tile--ghost nb-card--neon">
-                  <span className="nb-app-tile__name">Enter shop code</span>
-                  <span className="nb-app-tile__meta">From QR or link</span>
-                </div>
-                <div className="nb-app-tile nb-app-tile--ghost nb-card--neon">
-                  <span className="nb-app-tile__name">Track with phone</span>
-                  <span className="nb-app-tile__meta">No login</span>
-                </div>
-                <div
-                  className="nb-app-tile nb-app-tile--disabled nb-card--neon"
-                  aria-disabled="true"
-                >
-                  <span className="nb-app-tile__name">Groceries</span>
-                  <span className="nb-app-tile__meta">Soon</span>
-                </div>
-              </div>
-            </div>
-            <div className="nb-guest-gate__overlay">
-              <p className="nb-guest-gate__text">Login to explore more apps</p>
-              <Button
-                type="button"
-                className="nb-guest-gate__btn"
-                onClick={() => {
-                  setDiscoverVariant("apps");
-                  setDiscoverOpen(true);
-                }}
-              >
-                Get OTP to discover nearby apps
-              </Button>
-            </div>
-          </div>
-        ) : (
+      {user ? (
+        <section className="nb-section">
+          <h2 className="nb-section-title nb-section-title--neon">More apps</h2>
           <div className="nb-app-grid nb-app-grid--home">
             <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/shops">
               <span className="nb-app-tile__name">FaFo list</span>
               <span className="nb-app-tile__meta">Full-screen shop list</span>
             </Link>
-            <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/">
+            <Link className="nb-app-tile nb-app-tile--active nb-card--neon" to="/enter-shop">
               <span className="nb-app-tile__name">Enter shop code</span>
               <span className="nb-app-tile__meta">From QR or link</span>
             </Link>
@@ -404,8 +428,8 @@ export default function ExplorePage() {
               <span className="nb-app-tile__meta">Soon</span>
             </div>
           </div>
-        )}
-      </section>
+        </section>
+      ) : null}
 
       <section className="nb-section">
         <h2 className="nb-section-title nb-section-title--neon">Promotions</h2>

@@ -100,7 +100,7 @@ export default function OnboardingPage() {
         location: { lat: location.lat, lng: location.lng },
         email: user.email || "",
       });
-      navigate("/", { replace: true });
+      navigate("/explore", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save profile.");
     } finally {

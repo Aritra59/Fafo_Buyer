@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { fetchLatestOrderByPhone } from "../../services/orderService";
 import { normalizeIndiaPhone } from "../../utils/format";
 import { Input } from "../../components/ui/Input";
@@ -66,11 +67,12 @@ export default function TrackLookupPage() {
           {busy ? "Looking up…" : "Track latest order"}
         </Button>
         <Link
-          to="/"
-          className="nb-inline-link"
-          style={{ display: "inline-block", marginTop: "1rem" }}
+          to="/explore"
+          className="nb-back"
+          style={{ marginTop: "1rem" }}
         >
-          ← Home
+          <ArrowLeft size={16} strokeWidth={2} aria-hidden />
+          Home
         </Link>
         <Link
           to="/explore"

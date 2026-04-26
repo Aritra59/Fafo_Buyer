@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, Minus, Plus, ShoppingCart } from "lucide-react";
 import { useAuthProfile } from "../../context/AuthProfileContext";
 import { useCart } from "../../context/CartContext";
 import { getSellerById, subscribeSellerById } from "../../services/sellerService";
@@ -28,13 +29,13 @@ import { LazyImage } from "../../components/ui/LazyImage";
 import "../../styles/buyerShop.css";
 
 function shopPathForSeller(sellerId) {
-  if (!sellerId) return "/";
+  if (!sellerId) return "/explore";
   const recents = getRecentShops();
   const s = recents.find((r) => r && r.id === sellerId);
-  if (!s) return "/";
+  if (!s) return "/explore";
   if (s.code) return `/shop/${encodeURIComponent(String(s.code))}`;
   if (s.slug) return `/s/${encodeURIComponent(String(s.slug))}`;
-  return "/";
+  return "/explore";
 }
 
 function CartQtyStepper({ line, setQty, removeLine }) {
@@ -51,7 +52,7 @@ function CartQtyStepper({ line, setQty, removeLine }) {
         }}
         aria-label="Decrease"
       >
-        −
+        <Minus size={16} strokeWidth={2.5} aria-hidden />
       </button>
       <span className="bs-stepper__qty">{q}</span>
       <button
@@ -60,7 +61,7 @@ function CartQtyStepper({ line, setQty, removeLine }) {
         onClick={() => setQty(line.id, q + 1)}
         aria-label="Increase"
       >
-        +
+        <Plus size={16} strokeWidth={2.5} aria-hidden />
       </button>
     </div>
   );
@@ -228,7 +229,7 @@ export default function CartPage() {
         ? `/shop/${encodeURIComponent(code)}`
         : slug
           ? `/s/${encodeURIComponent(slug)}`
-          : "/";
+          : "/explore";
 
       if (paymentMode === "upi") {
         if (!sellerAcceptsUpi(seller)) {
@@ -322,8 +323,9 @@ export default function CartPage() {
     <div className="nb-page nb-page--browse bs-cart-page">
       <div className="bs-cart__scroll">
         <header className="bs-cart__header">
-          <Link className="nb-back" to="/">
-            ← Home
+          <Link className="nb-back" to="/explore">
+            <ArrowLeft size={16} strokeWidth={2} aria-hidden />
+            Home
           </Link>
           <h1 className="bs-cart__title">Your cart</h1>
           <p className="bs-cart__desc">Review items, then check out in one tap.</p>
@@ -341,17 +343,20 @@ export default function CartPage() {
 
       {lines.length === 0 ? (
         <div className="bs-empty" style={{ marginTop: "1.25rem" }}>
-          <span className="bs-empty__icon" aria-hidden>
-            🛒
+          <span className="bs-empty__icon bs-empty__icon--lucide" aria-hidden>
+            <ShoppingCart size={40} strokeWidth={1.5} />
           </span>
           <strong>Your cart is empty</strong>
           <div>Pick dishes from a shop, then return here to order.</div>
           <p style={{ marginTop: "1rem" }}>
-            <Link className="nb-inline-link" to={continueShoppingTo === "/" ? "/" : continueShoppingTo}>
-              {continueShoppingTo === "/" ? "Browse" : "Continue shopping"}
+            <Link
+              className="nb-inline-link"
+              to={continueShoppingTo === "/explore" ? "/explore" : continueShoppingTo}
+            >
+              {continueShoppingTo === "/explore" ? "Browse" : "Continue shopping"}
             </Link>
             {" · "}
-            <Link className="nb-inline-link" to="/">
+            <Link className="nb-inline-link" to="/explore">
               Home
             </Link>
           </p>

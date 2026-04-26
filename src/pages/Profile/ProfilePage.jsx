@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { signOut } from "firebase/auth";
 import { auth } from "../../firebase/config";
 import { useAuthProfile } from "../../context/AuthProfileContext";
@@ -84,7 +85,7 @@ export default function ProfilePage() {
         location: { lat: location.lat, lng: location.lng },
         email: email.trim() || user.email || "",
       });
-      navigate("/", { replace: false });
+      navigate("/explore", { replace: false });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save profile.");
     } finally {
@@ -115,7 +116,8 @@ export default function ProfilePage() {
     <div className="nb-page nb-page--browse nb-profile">
       <header className="nb-page-header">
         <Link className="nb-back" to="/explore">
-          ← Home
+          <ArrowLeft size={16} strokeWidth={2} aria-hidden />
+          Home
         </Link>
         <h1 className="nb-page-title">Profile</h1>
         <p className="nb-page-desc">
