@@ -22,7 +22,12 @@ import { buildUpiPayUri, copyToClipboard, tryOpenUpiUri } from "../../utils/upi"
 import { openWhatsAppOrder } from "../../utils/whatsapp";
 import { sellerAcceptsUpi, sellerAcceptsCod } from "../../utils/sellerPay";
 import { getShopOpenUiState } from "../../utils/shopOpenStatus";
+import {
+  ensureBuyerProfileAtOrder,
+  ensureGuestBuyerUserDoc,
+} from "../../services/userService";
 import { Card } from "../../components/ui/Card";
+import BuyerTermsPanel from "../../components/BuyerTermsPanel";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { LazyImage } from "../../components/ui/LazyImage";
@@ -230,6 +235,15 @@ export default function CartPage() {
         : slug
           ? `/s/${encodeURIComponent(slug)}`
           : "/explore";
+
+      if (user?.uid) {
+        await ensureBuyerProfileAtOrder(user.uid, {
+          name,
+          phone: buyerPhoneE164,
+        });
+      } else if (isGuestUser) {
+        await ensureGuestBuyerUserDoc(buyerPhoneE164, name);
+      }
 
       if (paymentMode === "upi") {
         if (!sellerAcceptsUpi(seller)) {
@@ -555,6 +569,8 @@ export default function CartPage() {
                 placeholder="Near metro gate, block B…"
               />
             </div>
+
+            <BuyerTermsPanel />
 
             <Card className="nb-card--neon" style={{ marginTop: "0.9rem" }}>
               <h3 className="nb-section-title nb-section-title--neon" style={{ margin: "0 0 0.4rem" }}>

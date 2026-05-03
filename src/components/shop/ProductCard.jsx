@@ -159,6 +159,19 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
             <h3 className="bs-pcard__title bs-pcard__title--minimal" title={label}>
               {label}
             </h3>
+            {tags.length > 0 ? (
+              <div className="bs-pcard__tags-row" aria-label="Tags">
+                {tags.slice(0, 2).map((tag, i) => (
+                  <span
+                    key={`${i}-${tag}`}
+                    className="bs-pcard__tag-chip"
+                    title={tag}
+                  >
+                    {tag.length > 16 ? `${tag.slice(0, 16)}…` : tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             {withDescription && shortDesc ? (
               <p className="bs-pcard__desc bs-pcard__desc--minimal" title={shortDesc}>
                 {shortDesc.length > 56 ? `${shortDesc.slice(0, 56)}…` : shortDesc}

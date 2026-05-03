@@ -29,7 +29,10 @@ import {
   buildComboLookupMap,
   lookupProductByMenuRef,
   lookupComboByMenuRef,
-  groupProductsByCategory,
+  groupProductsByCuisineMenuItemCategory,
+  getShopMenuSectionLabel,
+  canonicalItemTypeLabel,
+  comboCanonicalItemTypeLabels,
 } from "../../utils/menuAssignment";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { LazyImage } from "../ui/LazyImage";
@@ -70,7 +73,42 @@ function productMatchesQuery(p, q) {
   const name = String(p.name || "").toLowerCase();
   const cat = String(p.category || "").toLowerCase();
   const tags = productTagsString(p);
+  const o = /** @type {Record<string, unknown>} */ (p);
+  const haystackHit = (blob) => {
+    if (!blob) return false;
+    if (blob.includes(t)) return true;
+    return t.split(/\s+/).some((w) => w.length >= 2 && blob.includes(w));
+  };
+  const cuisineCategoryNameBlob = String(
+    o.cuisineCategoryName ?? o.cuisine_category_name ?? ""
+  )
+    .toLowerCase()
+    .trim();
+  const menuCategoryNameBlob = String(o.menuCategoryName ?? o.menu_category_name ?? "")
+    .toLowerCase()
+    .trim();
+  const itemCategoryNameBlob = String(o.itemCategoryName ?? o.item_category_name ?? "")
+    .toLowerCase()
+    .trim();
+  const cuisineLegacy = String(o.cuisine ?? o.cuisineType ?? o.region ?? "")
+    .toLowerCase()
+    .trim();
+  if (
+    haystackHit(cuisineCategoryNameBlob) ||
+    haystackHit(menuCategoryNameBlob) ||
+    haystackHit(itemCategoryNameBlob) ||
+    haystackHit(cuisineLegacy)
+  )
+    return true;
   if (name.includes(t) || cat.includes(t) || tags.includes(t)) return true;
+  const it = canonicalItemTypeLabel(/** @type {Record<string, unknown>} */ (p));
+  if (it !== "Other") {
+    const itl = String(it).toLowerCase();
+    if (itl.includes(t) || t.includes(itl)) return true;
+    for (const w of t.split(/\s+/).filter(Boolean)) {
+      if (w.length >= 2 && itl.includes(w)) return true;
+    }
+  }
   for (const w of t.split(/\s+/)) {
     if (w && (name.includes(w) || tags.includes(w))) return true;
   }
@@ -102,7 +140,7 @@ function comboTagsString(c) {
   return "";
 }
 
-function comboMatchesQuery(c, q) {
+function comboMatchesQuery(c, q, productLookupMap) {
   if (!q) return true;
   const t = q.trim().toLowerCase();
   if (!t) return true;
@@ -110,6 +148,15 @@ function comboMatchesQuery(c, q) {
   const sum = String(comboItemsSummary(c) || "").toLowerCase();
   const tags = comboTagsString(c);
   if (name.includes(t) || sum.includes(t) || tags.includes(t)) return true;
+  const mapSafe = productLookupMap || /** @type {Map<string, never>} */ (new Map());
+  for (const lab of comboCanonicalItemTypeLabels(/** @type {Record<string, unknown>} */ (c), mapSafe)) {
+    if (!lab || lab === "Other") continue;
+    const itl = String(lab).toLowerCase();
+    if (itl.includes(t) || t.includes(itl)) return true;
+    for (const w of t.split(/\s+/).filter(Boolean)) {
+      if (w.length >= 2 && itl.includes(w)) return true;
+    }
+  }
   for (const w of t.split(/\s+/)) {
     if (w && (name.includes(w) || tags.includes(w))) return true;
   }
@@ -121,11 +168,6 @@ function getProductCuisine(p) {
   return String(/** @type {Record<string, unknown>} */ (p).cuisine ?? p.cuisineType ?? p.region ?? "").trim();
 }
 
-function getProductMenuCategory(p) {
-  if (p == null) return "Menu";
-  return String(p.category ?? p.menuCategory ?? p.section ?? p.type ?? "").trim() || "Menu";
-}
-
 /**
  * @param {Record<string, unknown>} p
  * @param {{ kind: "all" } | { kind: "cuisine", value: string } | { kind: "category", value: string }} f
@@ -133,7 +175,7 @@ function getProductMenuCategory(p) {
 function productMatchesViewFilter(p, f) {
   if (f.kind === "all") return true;
   if (f.kind === "cuisine") return getProductCuisine(p) === f.value;
-  if (f.kind === "category") return getProductMenuCategory(p) === f.value;
+  if (f.kind === "category") return getShopMenuSectionLabel(p) === f.value;
   return true;
 }
 
@@ -198,8 +240,9 @@ function pickProductsForMenuGroup(group, productLookupMap, q, menuSearchIds, all
  * @param {string} q
  * @param {Set<string>} menuSearchIds
  * @param {Set<string> | null} allowedComboIds
+ * @param {Map<string, Record<string, unknown>>} productLookupMap
  */
-function pickCombosForMenuGroup(group, comboLookupMap, q, menuSearchIds, allowedComboIds) {
+function pickCombosForMenuGroup(group, comboLookupMap, q, menuSearchIds, allowedComboIds, productLookupMap) {
   const gid = group?.id != null ? String(group.id) : "";
   const inMenu = menuSearchIds.size > 0 && gid && menuSearchIds.has(gid);
   const out = [];
@@ -210,7 +253,7 @@ function pickCombosForMenuGroup(group, comboLookupMap, q, menuSearchIds, allowed
     const id = String(c.id);
     if (seen.has(id)) continue;
     if (allowedComboIds && !allowedComboIds.has(id)) continue;
-    if (!comboMatchesQuery(c, q) && !inMenu) continue;
+    if (!comboMatchesQuery(c, q, productLookupMap) && !inMenu) continue;
     seen.add(id);
     out.push(c);
   }
@@ -397,10 +440,10 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     for (const c of sessionBaseCombos) {
       if (c?.id == null) continue;
       if (assigned.has(String(c.id))) continue;
-      if (comboMatchesQuery(c, q)) out.push(c);
+      if (comboMatchesQuery(c, q, productLookupMap)) out.push(c);
     }
     return out;
-  }, [displayGroups, sessionBaseCombos, debouncedSearch]);
+  }, [displayGroups, sessionBaseCombos, debouncedSearch, productLookupMap]);
 
   const menuGroupCombos = useMemo(() => {
     if (!displayGroups || displayGroups.length === 0) return [];
@@ -412,7 +455,14 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
         continue;
       }
       list.push(
-        ...pickCombosForMenuGroup(/** @type {Record<string, unknown>} */ (g), comboLookupMap, q, menuSearchIds, allowedC)
+        ...pickCombosForMenuGroup(
+          /** @type {Record<string, unknown>} */ (g),
+          comboLookupMap,
+          q,
+          menuSearchIds,
+          allowedC,
+          productLookupMap
+        )
       );
     }
     return list;
@@ -423,6 +473,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     menuSearchIds,
     sessionComboIdSet,
     sessionResolved,
+    productLookupMap,
   ]);
 
   const combosInHorizontalRail = useMemo(() => {
@@ -465,7 +516,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     for (const p of sessionBaseProducts) {
       const cu = getProductCuisine(/** @type {Record<string, unknown>} */ (p));
       if (cu) cuisineSet.add(cu);
-      const me = getProductMenuCategory(/** @type {Record<string, unknown>} */ (p));
+      const me = getShopMenuSectionLabel(/** @type {Record<string, unknown>} */ (p));
       if (me) menuSet.add(me);
     }
     for (const c of sessionBaseCombos) {
@@ -479,7 +530,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
         if (!p) continue;
         const cu = getProductCuisine(/** @type {Record<string, unknown>} */ (p));
         if (cu) cuisineSet.add(cu);
-        const me = getProductMenuCategory(/** @type {Record<string, unknown>} */ (p));
+        const me = getShopMenuSectionLabel(/** @type {Record<string, unknown>} */ (p));
         if (me) menuSet.add(me);
       }
     }
@@ -562,7 +613,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
   const combosToShow = useMemo(() => {
     return sessionBaseCombos.filter(
       (c) =>
-        comboMatchesQuery(c, debouncedSearch) &&
+        comboMatchesQuery(c, debouncedSearch, productLookupMap) &&
         comboMatchesViewFilter(/** @type {Record<string, unknown>} */ (c), viewFilter, productLookupMap)
     );
   }, [sessionBaseCombos, debouncedSearch, viewFilter, productLookupMap]);
@@ -722,18 +773,37 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     );
   }
 
-  function renderProductsWithCategories(products, keyPrefix, menuLabel) {
-    const groups = groupProductsByCategory(products);
-    const onlyMenu = groups.length === 1 && groups[0].category === "Menu";
-    if (onlyMenu || groups.length === 0) {
-      return renderProductGrid(products, keyPrefix);
-    }
+  function renderProductsWithCategories(products, keyPrefix) {
+    const tree = groupProductsByCuisineMenuItemCategory(products);
+    if (!tree.length) return null;
+
     return (
       <>
-        {groups.map(({ category, list }) => (
-          <div key={`${keyPrefix}-cat-${category}`} className="bs-cat-block">
-            <h3 className="bs-cat-block__title">{category}</h3>
-            {renderProductGrid(list, `${keyPrefix}-${category}`)}
+        {tree.map((cuisineNode) => (
+          <div
+            key={`${keyPrefix}-cuisine-${cuisineNode.cuisineKey}`}
+            className="bs-menu-hierarchy bs-menu-hierarchy--cuisine"
+          >
+            <h2 className="bs-menu-hierarchy__cuisine">{cuisineNode.cuisineTitle}</h2>
+            {cuisineNode.menus.map((menuNode) => (
+              <div
+                key={`${keyPrefix}-menu-${cuisineNode.cuisineKey}-${menuNode.menuKey}`}
+                className="bs-menu-hierarchy bs-menu-hierarchy--menu"
+              >
+                <h3 className="bs-menu-hierarchy__menu">{menuNode.menuTitle}</h3>
+                {menuNode.itemCategories.map((ic) => (
+                  <div
+                    key={`${keyPrefix}-ic-${cuisineNode.cuisineKey}-${menuNode.menuKey}-${ic.itemCategoryKey}`}
+                    className="bs-item-type-block"
+                  >
+                    <h4 className="bs-menu-hierarchy__item-category bs-item-type-heading">
+                      {ic.itemCategoryTitle}
+                    </h4>
+                    {renderProductGrid(ic.list, `${keyPrefix}-${cuisineNode.cuisineKey}-${menuNode.menuKey}-${ic.itemCategoryKey}`)}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         ))}
       </>
@@ -986,11 +1056,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
 
       {sessionResolved.mode === "combosOnly" ? null : !showUnavailable && (productsToRender.length > 0 || productsLoading) ? (
         <section className="bs-section bs-section--items" aria-label="Menu items">
-          {renderProductsWithCategories(
-            productsToRender,
-            "items",
-            sessionLabel
-          )}
+          {renderProductsWithCategories(productsToRender, "items")}
         </section>
       ) : !showUnavailable && !showProductSkeleton && !productsLoading && sessionResolved.mode !== "combosOnly" && debouncedSearch.trim() && productsToRender.length === 0 && sessionBaseProducts.length > 0 ? (
         <p className="bs-rail__empty">No matches for that search.</p>

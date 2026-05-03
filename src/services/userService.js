@@ -74,6 +74,88 @@ export async function ensureBuyerProfileOnSignIn(user) {
     return;
   }
 
+  if (!existing.createdAt && !existing.created_at) {
+    data.createdAt = serverTimestamp();
+  }
+
+  await setDoc(ref, data, { merge: true });
+}
+
+/**
+ * Canonical guest-linked user doc id derived from normalized phone digits.
+ * @param {string} phoneE164
+ */
+export function guestBuyerDocIdFromPhone(phoneE164) {
+  const digits = String(phoneE164 || "").replace(/\D/g, "");
+  return digits ? `buyer_guest_${digits}` : "";
+}
+
+/**
+ * Persist guest checkout identity as `users/{buyer_guest_*}` — role buyer — for CRM / merges.
+ * @param {string} phoneE164
+ * @param {string} displayName
+ */
+export async function ensureGuestBuyerUserDoc(phoneE164, displayName) {
+  const id = guestBuyerDocIdFromPhone(phoneE164);
+  if (!id) return;
+  const ref = doc(db, "users", id);
+  const snap = await getDoc(ref);
+  const existing = snap.exists() ? snap.data() : null;
+
+  /** @type {Record<string, unknown>} */
+  const data = {
+    userId: id,
+    updatedAt: serverTimestamp(),
+    phone: String(phoneE164 || "").trim(),
+    name: String(displayName || "").trim() || "Guest",
+    role: "buyer",
+    buyerGuestIdentity: true,
+  };
+
+  if (!existing || (!existing.createdAt && !existing.created_at)) {
+    data.createdAt = serverTimestamp();
+  }
+
+  await setDoc(ref, data, { merge: true });
+}
+
+/**
+ * At order submission: upsert Firebase-auth buyer row with latest name / phone without touching order payloads.
+ * @param {string} uid
+ * @param {{ name: string, phone: string }} checkout
+ */
+export async function ensureBuyerProfileAtOrder(uid, checkout) {
+  const u = String(uid || "").trim();
+  if (!u) return;
+
+  const name = String(checkout?.name || "").trim() || "Buyer";
+  const phone = String(checkout?.phone || "").trim();
+
+  const ref = userDocRef(u);
+  const snap = await getDoc(ref);
+  const existing = snap.exists() ? snap.data() : null;
+
+  if (existing?.role === "seller") return;
+
+  /** @type {Record<string, unknown>} */
+  const data = {
+    userId: u,
+    name,
+    updatedAt: serverTimestamp(),
+    role: "buyer",
+  };
+  if (phone) data.phone = phone;
+
+  if (!existing) {
+    data.createdAt = serverTimestamp();
+    await setDoc(ref, data, { merge: true });
+    return;
+  }
+
+  if (!existing.createdAt && !existing.created_at) {
+    data.createdAt = serverTimestamp();
+  }
+
   await setDoc(ref, data, { merge: true });
 }
 
