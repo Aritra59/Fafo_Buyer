@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuthProfile } from "../../context/AuthProfileContext";
 import { useBuyerOrders } from "../../context/BuyerOrdersContext";
 import { getRecentShops, getGuestProfile } from "../../utils/guestProfile";
+import { getPublicMenuPath } from "../../utils/publicShopPath";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
@@ -129,11 +130,10 @@ export default function GuestDashboardPage() {
           <h2 className="nb-section-title nb-section-title--neon">Recent shops</h2>
           <ul className="nb-recent-shops">
             {recent.map((r) => {
-              const to = r.code
-                ? `/shop/${encodeURIComponent(String(r.code))}`
-                : r.slug
-                  ? `/s/${encodeURIComponent(String(r.slug))}`
-                  : null;
+              const to = getPublicMenuPath({
+                shopSlug: String(r.slug || ""),
+                shopCode: String(r.code || ""),
+              });
               return (
                 <li key={r.id}>
                   {to ? (

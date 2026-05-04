@@ -5,6 +5,7 @@ import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { getRecentShops } from "../../utils/guestProfile";
+import { getPublicMenuPath } from "../../utils/publicShopPath";
 import PwaInstallSection from "../../components/PwaInstallSection";
 
 export default function PublicHomePage() {
@@ -16,7 +17,7 @@ export default function PublicHomePage() {
   function goShop() {
     const c = String(code).trim();
     if (!c) return;
-    navigate(`/shop/${encodeURIComponent(c.toUpperCase())}`);
+    navigate(`/s/${encodeURIComponent(c.toUpperCase())}`);
   }
 
   return (
@@ -86,11 +87,10 @@ export default function PublicHomePage() {
           <h2 className="nb-section-title nb-section-title--neon">Recent shops</h2>
           <ul className="nb-recent-shops">
             {recent.map((r) => {
-              const to = r.code
-                ? `/shop/${encodeURIComponent(String(r.code))}`
-                : r.slug
-                  ? `/s/${encodeURIComponent(String(r.slug))}`
-                  : null;
+              const to = getPublicMenuPath({
+                shopSlug: String(r.slug || ""),
+                shopCode: String(r.code || ""),
+              });
               return (
                 <li key={r.id}>
                   {to ? (

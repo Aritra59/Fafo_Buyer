@@ -31,6 +31,7 @@ import BuyerTermsPanel from "../../components/BuyerTermsPanel";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { LazyImage } from "../../components/ui/LazyImage";
+import { getPublicMenuPath } from "../../utils/publicShopPath";
 import "../../styles/buyerShop.css";
 
 function shopPathForSeller(sellerId) {
@@ -38,9 +39,12 @@ function shopPathForSeller(sellerId) {
   const recents = getRecentShops();
   const s = recents.find((r) => r && r.id === sellerId);
   if (!s) return "/explore";
-  if (s.code) return `/shop/${encodeURIComponent(String(s.code))}`;
-  if (s.slug) return `/s/${encodeURIComponent(String(s.slug))}`;
-  return "/explore";
+  return (
+    getPublicMenuPath({
+      shopSlug: String(s.slug || ""),
+      shopCode: String(s.code || ""),
+    }) || "/explore"
+  );
 }
 
 function CartQtyStepper({ line, setQty, removeLine }) {
@@ -228,13 +232,7 @@ export default function CartPage() {
       const shopLabel = seller?.shopName || seller?.name || "Shop";
       const sellerNameOut = String(seller?.shopName || seller?.name || "Shop");
       const deliveryEnabled = seller?.deliveryEnabled === true;
-      const code = String(seller?.shopCode || "").trim();
-      const slug = String(seller?.shopSlug || seller?.slug || "").trim();
-      const returnShopPath = code
-        ? `/shop/${encodeURIComponent(code)}`
-        : slug
-          ? `/s/${encodeURIComponent(slug)}`
-          : "/explore";
+      const returnShopPath = getPublicMenuPath(seller) || "/explore";
 
       if (user?.uid) {
         await ensureBuyerProfileAtOrder(user.uid, {

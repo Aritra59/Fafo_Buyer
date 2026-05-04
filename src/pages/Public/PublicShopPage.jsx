@@ -47,9 +47,9 @@ function PublicShopPageSkeleton() {
 }
 
 export default function PublicShopPage() {
-  const { shopCode: shopCodeParam, shopSlug: shopSlugParam } = useParams();
-  const shopCode = normalizeSegment(shopCodeParam);
-  const shopSlug = normalizeSegment(shopSlugParam);
+  const { code: codeParam, slug: slugParam } = useParams();
+  const shopCode = normalizeSegment(codeParam);
+  const shopSlug = normalizeSegment(slugParam);
 
   const [sellerId, setSellerId] = useState(/** @type {string | null} */ (null));
   const [notFound, setNotFound] = useState(false);
@@ -72,9 +72,9 @@ export default function PublicShopPage() {
       setLoadError("");
       setSellerId(null);
       try {
-        const seller = shopCode
-          ? await getSellerByShopCode(shopCode)
-          : await getSellerByShopSlug(shopSlug);
+        const seller = shopSlug
+          ? await getSellerByShopSlug(shopSlug)
+          : await getSellerByShopCode(shopCode);
         if (cancel) return;
         if (!seller?.id) {
           setNotFound(true);
