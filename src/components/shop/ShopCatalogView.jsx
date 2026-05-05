@@ -796,9 +796,11 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
                     key={`${keyPrefix}-ic-${cuisineNode.cuisineKey}-${menuNode.menuKey}-${ic.itemCategoryKey}`}
                     className="bs-item-type-block"
                   >
-                    <h4 className="bs-menu-hierarchy__item-category bs-item-type-heading">
-                      {ic.itemCategoryTitle}
-                    </h4>
+                    {ic.hasItemCategory ? (
+                      <h4 className="bs-menu-hierarchy__item-category bs-item-type-heading">
+                        {ic.itemCategoryTitle}
+                      </h4>
+                    ) : null}
                     {renderProductGrid(ic.list, `${keyPrefix}-${cuisineNode.cuisineKey}-${menuNode.menuKey}-${ic.itemCategoryKey}`)}
                   </div>
                 ))}

@@ -196,7 +196,9 @@ function menuCategoryNameFromProduct(p) {
 
 /** @param {Record<string, unknown>} p */
 function itemCategoryNameFromProduct(p) {
-  return groupingFromCategoryName(p.itemCategoryName ?? p.item_category_name ?? "");
+  const raw = String(p.itemCategoryName ?? p.item_category_name ?? "").trim();
+  if (!raw) return { mergeKey: "__no_item_category__", title: "" };
+  return groupingFromCategoryName(raw);
 }
 
 /** Alphabetical sort; `"Other"` last. */
@@ -237,6 +239,7 @@ function sortProductsByName(arr) {
  *     itemCategories: {
  *       itemCategoryKey: string,
  *       itemCategoryTitle: string,
+ *       hasItemCategory: boolean,
  *       list: Record<string, unknown>[],
  *     }[],
  *   }[],
@@ -310,9 +313,11 @@ export function groupProductsByCuisineMenuItemCategory(products) {
       const itemCategories = catKeysSorted.map((ik) => {
         const cg = mn.cats.get(ik);
         const listSorted = cg ? sortProductsByName(cg.items) : [];
+        const itemCategoryTitle = String(cg?.title ?? "").trim();
         return {
           itemCategoryKey: ik,
-          itemCategoryTitle: cg?.title ?? "Other",
+          itemCategoryTitle,
+          hasItemCategory: itemCategoryTitle.length > 0,
           list: listSorted,
         };
       });
