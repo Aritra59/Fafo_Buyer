@@ -43,7 +43,19 @@ function productTagList(p) {
  * @param {boolean} [props.withDescription] — one line of description in compact mode
  * @param {boolean} [props.horizontal] — one row: image | name, price, ADD
  */
-function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: metaIn, compact = false, withDescription = false, horizontal = false }) {
+function ProductCard({
+  p,
+  sellerId,
+  addItem,
+  setQty,
+  line,
+  categoryLabel,
+  meta: metaIn,
+  compact = false,
+  withDescription = false,
+  horizontal = false,
+  onOpenDetail,
+}) {
   const meta = metaIn || getProductOfferMeta(p);
   const img = productImageUrl(p);
   const label = p.name || "Item";
@@ -74,12 +86,27 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
     prepTime: prep || "",
     notes: "",
   });
+  const openDetails = () => {
+    if (typeof onOpenDetail === "function") onOpenDetail(p, meta);
+  };
 
   if (compact) {
     if (horizontal) {
       return (
         <li className="bs-pcard-wrap bs-pcard-wrap--hoz">
-          <article className={`bs-pcard bs-pcard--hoz${unavailable ? " bs-pcard--unavailable" : ""}`}>
+          <article
+            className={`bs-pcard bs-pcard--hoz${unavailable ? " bs-pcard--unavailable" : ""}`}
+            onClick={openDetails}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                openDetails();
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={`View ${label} details`}
+          >
             <div className="bs-pcard__hoz-left">
               <div className="bs-pcard__img-wrap bs-pcard__img-wrap--hoz">
                 <LazyImage
@@ -107,7 +134,10 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
                   <button
                     type="button"
                     className="bs-stepper__btn bs-stepper__btn--minus"
-                    onClick={() => setQty(line.id, qty - 1)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setQty(line.id, qty - 1);
+                    }}
                     aria-label="Decrease"
                   >
                     <Minus size={16} strokeWidth={2.5} aria-hidden />
@@ -116,7 +146,10 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
                   <button
                     type="button"
                     className="bs-stepper__btn bs-stepper__btn--plus"
-                    onClick={() => setQty(line.id, qty + 1)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setQty(line.id, qty + 1);
+                    }}
                     aria-label="Increase"
                   >
                     <Plus size={16} strokeWidth={2.5} aria-hidden />
@@ -127,6 +160,7 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
                   type="button"
                   className="bs-pcard__add bs-pcard__add--minimal bs-ripple"
                   onClick={(e) => {
+                    e.stopPropagation();
                     const el = e.currentTarget;
                     el.classList.add("bs-bounce");
                     window.setTimeout(() => el.classList.remove("bs-bounce"), 400);
@@ -143,7 +177,19 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
     }
     return (
       <li className="bs-pcard-wrap">
-        <article className={`bs-pcard bs-pcard--minimal${unavailable ? " bs-pcard--unavailable" : ""}`}>
+        <article
+          className={`bs-pcard bs-pcard--minimal${unavailable ? " bs-pcard--unavailable" : ""}`}
+          onClick={openDetails}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              openDetails();
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label={`View ${label} details`}
+        >
           <div className="bs-pcard__img-wrap bs-pcard__img-wrap--minimal">
             <LazyImage
               className="bs-pcard__media"
@@ -188,7 +234,10 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
                   <button
                     type="button"
                     className="bs-stepper__btn bs-stepper__btn--minus"
-                    onClick={() => setQty(line.id, qty - 1)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setQty(line.id, qty - 1);
+                    }}
                     aria-label="Decrease"
                   >
                     <Minus size={16} strokeWidth={2.5} aria-hidden />
@@ -197,7 +246,10 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
                   <button
                     type="button"
                     className="bs-stepper__btn bs-stepper__btn--plus"
-                    onClick={() => setQty(line.id, qty + 1)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setQty(line.id, qty + 1);
+                    }}
                     aria-label="Increase"
                   >
                     <Plus size={16} strokeWidth={2.5} aria-hidden />
@@ -208,6 +260,7 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
                   type="button"
                   className="bs-pcard__add bs-pcard__add--minimal bs-ripple"
                   onClick={(e) => {
+                    e.stopPropagation();
                     const el = e.currentTarget;
                     el.classList.add("bs-bounce");
                     window.setTimeout(() => el.classList.remove("bs-bounce"), 400);
@@ -229,6 +282,16 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
       <article
         className={`bs-pcard${unavailable ? " bs-pcard--unavailable" : ""}`}
         data-veg={vType !== "unknown" ? vType : undefined}
+        onClick={openDetails}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openDetails();
+          }
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label={`View ${label} details`}
       >
         <div className="bs-pcard__img-wrap">
           <LazyImage
@@ -274,7 +337,10 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
                 <button
                   type="button"
                   className="bs-stepper__btn bs-stepper__btn--minus"
-                  onClick={() => setQty(line.id, qty - 1)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setQty(line.id, qty - 1);
+                  }}
                   aria-label="Decrease"
                 >
                   <Minus size={16} strokeWidth={2.5} aria-hidden />
@@ -283,7 +349,8 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
                 <button
                   type="button"
                   className="bs-stepper__btn bs-stepper__btn--plus"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setQty(line.id, qty + 1);
                   }}
                   aria-label="Increase"
@@ -296,6 +363,7 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
                 type="button"
                 className="bs-pcard__add bs-ripple"
                 onClick={(e) => {
+                  e.stopPropagation();
                   const el = e.currentTarget;
                   el.classList.add("bs-bounce");
                   window.setTimeout(() => el.classList.remove("bs-bounce"), 400);
@@ -312,4 +380,28 @@ function ProductCard({ p, sellerId, addItem, setQty, line, categoryLabel, meta: 
   );
 }
 
-export default memo(ProductCard);
+function productCardPropsEqual(prev, next) {
+  if (prev.sellerId !== next.sellerId) return false;
+  if (prev.compact !== next.compact || prev.horizontal !== next.horizontal || prev.withDescription !== next.withDescription)
+    return false;
+  if ((prev.categoryLabel || "") !== (next.categoryLabel || "")) return false;
+  if (prev.p?.id !== next.p?.id) return false;
+  if (String(prev.p?.name ?? "") !== String(next.p?.name ?? "")) return false;
+  const imgA = String(prev.p?.imageUrl ?? prev.p?.image ?? "");
+  const imgB = String(next.p?.imageUrl ?? next.p?.image ?? "");
+  if (imgA !== imgB) return false;
+  const ma = prev.meta ?? getProductOfferMeta(prev.p);
+  const mb = next.meta ?? getProductOfferMeta(next.p);
+  if (ma.price !== mb.price || ma.hasDiscount !== mb.hasDiscount) return false;
+  if (Number(ma.originalPrice) !== Number(mb.originalPrice)) return false;
+  if (String(ma.offerLabel ?? "") !== String(mb.offerLabel ?? "")) return false;
+  if (isProductUnavailable(prev.p) !== isProductUnavailable(next.p)) return false;
+  const la = prev.line;
+  const lb = next.line;
+  if ((la?.id ?? "") !== (lb?.id ?? "")) return false;
+  if (Number(la?.qty) !== Number(lb?.qty)) return false;
+  if (prev.onOpenDetail !== next.onOpenDetail || prev.addItem !== next.addItem || prev.setQty !== next.setQty) return false;
+  return true;
+}
+
+export default memo(ProductCard, productCardPropsEqual);

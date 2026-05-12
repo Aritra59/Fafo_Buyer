@@ -1,5 +1,11 @@
 import { isDiscountSectionProduct } from "./pricing";
-import { extractMenuComboIds, extractMenuProductIds } from "./menuAssignment";
+import {
+  arrangementCreatedMs,
+  compareBySequenceAndCreatedAt,
+  BUYER_MENU_GROUP_SEQUENCE_KEYS,
+  extractMenuComboIds,
+  extractMenuProductIds,
+} from "./menuAssignment";
 
 /**
  * @typedef {"breakfast"|"lunch"|"dinner"|"specials"|"other"} MenuSlot
@@ -126,24 +132,43 @@ function slugifyName(s) {
  */
 export function buildCategoryFallbackMenuGroups(products) {
   if (!Array.isArray(products) || products.length === 0) return [];
+  /** @type {Map<string, { ids: string[], minSeq: number, minCreated: number }>} */
   const byCat = new Map();
   for (const p of products) {
     const id = p?.id != null ? String(p.id) : "";
     if (!id) continue;
     const raw = p?.category != null ? String(p.category) : "";
     const cat = raw.trim() || "Other";
-    if (!byCat.has(cat)) byCat.set(cat, /** @type {string[]} */ ([]));
-    byCat.get(cat).push(id);
+    const pr = /** @type {Record<string, unknown>} */ (p);
+    const sq = Number(pr.sequence ?? pr.itemSequence ?? pr.sortOrder);
+    const seq = Number.isFinite(sq) ? sq : Number.POSITIVE_INFINITY;
+    const cre = arrangementCreatedMs(pr);
+    if (!byCat.has(cat)) byCat.set(cat, { ids: [], minSeq: seq, minCreated: cre });
+    const bucket = byCat.get(cat);
+    if (!bucket) continue;
+    bucket.ids.push(id);
+    if (seq < bucket.minSeq) bucket.minSeq = seq;
+    if (cre < bucket.minCreated) bucket.minCreated = cre;
   }
-  const names = Array.from(byCat.keys()).sort((a, b) => a.localeCompare(b));
+  const names = Array.from(byCat.keys()).sort((a, b) => {
+    const ba = byCat.get(a);
+    const bb = byCat.get(b);
+    const diff = (ba?.minSeq ?? Number.POSITIVE_INFINITY) - (bb?.minSeq ?? Number.POSITIVE_INFINITY);
+    if (diff !== 0) return diff;
+    const dc = (ba?.minCreated ?? Number.POSITIVE_INFINITY) - (bb?.minCreated ?? Number.POSITIVE_INFINITY);
+    if (dc !== 0) return dc;
+    return a.localeCompare(b, undefined, { sensitivity: "base" });
+  });
   return names.map((name, i) => {
     const slug = slugifyName(name);
+    const bucket = byCat.get(name);
     return {
       id: `fb__${i}_${encodeURIComponent(name).replace(/%/g, "_")}`,
       name,
       slug,
-      productIds: byCat.get(name) || [],
+      productIds: bucket?.ids || [],
       active: true,
+      sequence: i,
       sortOrder: i,
       _fallback: true,
     };
@@ -385,19 +410,13 @@ export function isSellerMenuManualOverride(seller) {
  */
 export function sortMenuGroupsForBuyerTabs(groups) {
   const list = Array.isArray(groups) ? [...groups] : [];
-  const mealRank = (g) => {
-    const n = `${String(g?.name || "")} ${String(g?.slug || "")}`.trim().toLowerCase();
-    if (n.includes("breakfast") || n.includes("brunch") || n.includes("morning")) return 0;
-    if (n.includes("lunch")) return 1;
-    if (n.includes("dinner") || n.includes("supper") || n.includes("evening")) return 2;
-    return 10 + (Number(g?.sortOrder) || 0) / 1_000_000;
-  };
-  list.sort((a, b) => {
-    const ra = mealRank(a);
-    const rb = mealRank(b);
-    if (ra !== rb) return ra - rb;
-    return (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0);
-  });
+  list.sort((a, b) =>
+    compareBySequenceAndCreatedAt(
+      /** @type {Record<string, unknown>} */ (a),
+      /** @type {Record<string, unknown>} */ (b),
+      BUYER_MENU_GROUP_SEQUENCE_KEYS
+    )
+  );
   return list;
 }
 

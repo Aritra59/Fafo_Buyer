@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft, Search, ShoppingCart, UtensilsCrossed } from "lucide-react";
 import { subscribeProductsBySeller } from "../../services/productService";
@@ -33,13 +33,77 @@ import {
   getShopMenuSectionLabel,
   canonicalItemTypeLabel,
   comboCanonicalItemTypeLabels,
+  compareBySequenceAndCreatedAt,
+  BUYER_COMBO_SEQUENCE_KEYS,
+  BUYER_PRODUCT_SEQUENCE_KEYS,
+  sortMenuSectionLabelsBySequence,
 } from "../../utils/menuAssignment";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { LazyImage } from "../ui/LazyImage";
 import ProductCard from "./ProductCard";
 import ComboCard from "./ComboCard";
+import ItemDetailModal from "./ItemDetailModal";
 import StorefrontAdRail from "../StorefrontAdRail";
 import "../../styles/buyerShop.css";
+
+function BuyerMenuHierarchyInner({ tree, sellerId, lineById, addItem, setQty, onOpenProductDetail }) {
+  if (!tree?.length) return null;
+  return (
+    <>
+      {tree.map((cuisineNode) => (
+        <div
+          key={`cuisine-${cuisineNode.cuisineKey}`}
+          className="bs-menu-hierarchy bs-menu-hierarchy--cuisine"
+        >
+          <h2 className="bs-menu-hierarchy__cuisine">{cuisineNode.cuisineTitle}</h2>
+          {cuisineNode.menus.map((menuNode) => (
+            <div
+              key={`menu-${cuisineNode.cuisineKey}-${menuNode.menuKey}`}
+              className="bs-menu-hierarchy bs-menu-hierarchy--menu"
+            >
+              <h3 className="bs-menu-hierarchy__menu">{menuNode.menuTitle}</h3>
+              {menuNode.itemCategories.map((ic) => (
+                <div
+                  key={`ic-${cuisineNode.cuisineKey}-${menuNode.menuKey}-${ic.itemCategoryKey}`}
+                  className="bs-item-type-block"
+                >
+                  {ic.hasItemCategory ? (
+                    <h4 className="bs-menu-hierarchy__item-category bs-item-type-heading">
+                      {ic.itemCategoryTitle}
+                    </h4>
+                  ) : null}
+                  <ul className="bs-pgrid bs-pgrid--item-premium" aria-label="Menu items grid">
+                    {ic.list.map((p) => {
+                      const pr = /** @type {Record<string, unknown>} */ (p);
+                      const pid = pr.id != null ? String(pr.id) : "";
+                      const meta = getProductOfferMeta(pr);
+                      return (
+                        <ProductCard
+                          key={pid}
+                          p={p}
+                          meta={meta}
+                          sellerId={sellerId}
+                          addItem={addItem}
+                          setQty={setQty}
+                          line={lineById.get(pid)}
+                          categoryLabel={menuSlotLabel(getProductMenuSlot(pr, meta))}
+                          onOpenDetail={onOpenProductDetail}
+                          compact
+                        />
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
+const BuyerMenuHierarchy = memo(BuyerMenuHierarchyInner);
 
 function formatOffers(seller) {
   if (!seller) return [];
@@ -291,6 +355,8 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
   const [sessionClock, setSessionClock] = useState(0);
   const [activeFilterId, setActiveFilterId] = useState("all");
   const [products, setProducts] = useState([]);
+  const [activeProduct, setActiveProduct] = useState(null);
+  const [activeProductMeta, setActiveProductMeta] = useState(null);
 
   const [rawMenuGroups, setRawMenuGroups] = useState(
     /** @type {import("../../services/menuGroupService").MenuGroupDoc[]} */ ([])
@@ -330,13 +396,37 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     return resolveEffectiveMenuSession(seller, displayGroups, new Date());
   }, [seller, displayGroups, sessionClock]);
 
+  const sortedProducts = useMemo(
+    () =>
+      [...products].sort((a, b) =>
+        compareBySequenceAndCreatedAt(
+          /** @type {Record<string, unknown>} */ (a),
+          /** @type {Record<string, unknown>} */ (b),
+          BUYER_PRODUCT_SEQUENCE_KEYS
+        )
+      ),
+    [products]
+  );
+
+  const sortedCombos = useMemo(
+    () =>
+      [...combos].sort((a, b) =>
+        compareBySequenceAndCreatedAt(
+          /** @type {Record<string, unknown>} */ (a),
+          /** @type {Record<string, unknown>} */ (b),
+          BUYER_COMBO_SEQUENCE_KEYS
+        )
+      ),
+    [combos]
+  );
+
   const sessionBaseProducts = useMemo(() => {
     if (displayGroups == null) return [];
     if (sessionResolved.mode === "combosOnly") return [];
     if (sessionResolved.mode === "legacyNoGroups" && "slot" in sessionResolved) {
       const slot = String(sessionResolved.slot);
       if (slot === "combos") return [];
-      return products.filter((p) => {
+      return sortedProducts.filter((p) => {
         const meta = getProductOfferMeta(p);
         return getProductMenuSlot(p, meta) === String(slot);
       });
@@ -344,29 +434,41 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     if (sessionResolved.mode === "oneGroup" && "groupId" in sessionResolved) {
       const gid = sessionResolved.groupId;
       const g = displayGroups.find((x) => x.id === gid);
-      const s = new Set(extractMenuProductIds(/** @type {Record<string, unknown>} */ (g || {})));
-      if (!s.size) return [];
-      return products.filter((p) => s.has(String(p.id)));
+      const refs = extractMenuProductIds(/** @type {Record<string, unknown>} */ (g || {}));
+      if (!refs.length) return [];
+      const m = buildProductLookupMap(sortedProducts);
+      /** @type {Record<string, unknown>[]} */
+      const out = [];
+      const seen = new Set();
+      for (const ref of refs) {
+        const p = lookupProductByMenuRef(m, ref);
+        if (!p || p.id == null) continue;
+        const id = String(p.id);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        out.push(p);
+      }
+      return out;
     }
-    return products;
-  }, [products, displayGroups, sessionResolved]);
+    return sortedProducts;
+  }, [sortedProducts, displayGroups, sessionResolved]);
 
   const sessionBaseCombos = useMemo(() => {
     if (displayGroups == null) return [];
-    if (sessionResolved.mode === "combosOnly") return combos;
+    if (sessionResolved.mode === "combosOnly") return sortedCombos;
     if (sessionResolved.mode === "oneGroup" && "groupId" in sessionResolved) {
       const gid = sessionResolved.groupId;
       const g = displayGroups.find((x) => x.id === gid);
       const refs = extractMenuComboIds(/** @type {Record<string, unknown>} */ (g || {}));
       if (!refs.length) return [];
-      const m = buildComboLookupMap(combos);
+      const m = buildComboLookupMap(sortedCombos);
       return refs.map((id) => lookupComboByMenuRef(m, id)).filter(Boolean);
     }
     if (sessionResolved.mode === "legacyNoGroups" && "slot" in sessionResolved) {
-      if (String(sessionResolved.slot) === "combos") return combos;
+      if (String(sessionResolved.slot) === "combos") return sortedCombos;
     }
-    return combos;
-  }, [combos, displayGroups, sessionResolved]);
+    return sortedCombos;
+  }, [sortedCombos, displayGroups, sessionResolved]);
 
   const sessionLocked = useMemo(() => {
     return (
@@ -399,8 +501,8 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     return "Menu";
   }, [sessionResolved, displayGroups, rawMenuGroups.length]);
 
-  const productLookupMap = useMemo(() => buildProductLookupMap(products), [products]);
-  const comboLookupMap = useMemo(() => buildComboLookupMap(combos), [combos]);
+  const productLookupMap = useMemo(() => buildProductLookupMap(sortedProducts), [sortedProducts]);
+  const comboLookupMap = useMemo(() => buildComboLookupMap(sortedCombos), [sortedCombos]);
   const productByIdForCollage = productLookupMap;
 
   const sessionProductIdSet = useMemo(() => {
@@ -495,12 +597,6 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
 
   const viewFilter = useMemo(() => {
     if (activeFilterId === "all") return /** @type {const} */ ({ kind: "all" });
-    if (activeFilterId.startsWith("c-")) {
-      return {
-        kind: "cuisine",
-        value: decodeURIComponent(activeFilterId.slice(2)),
-      };
-    }
     if (activeFilterId.startsWith("g-")) {
       return {
         kind: "category",
@@ -510,36 +606,31 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     return /** @type {const} */ ({ kind: "all" });
   }, [activeFilterId]);
 
-  const { cuisineList, menuCategoryList } = useMemo(() => {
-    const cuisineSet = new Set();
+  const { menuCategoryList } = useMemo(() => {
     const menuSet = new Set();
     for (const p of sessionBaseProducts) {
-      const cu = getProductCuisine(/** @type {Record<string, unknown>} */ (p));
-      if (cu) cuisineSet.add(cu);
       const me = getShopMenuSectionLabel(/** @type {Record<string, unknown>} */ (p));
       if (me) menuSet.add(me);
     }
     for (const c of sessionBaseCombos) {
       const co = /** @type {Record<string, unknown>} */ (c);
-      const cC = String(co.cuisine ?? co.cuisineType ?? "").trim();
-      if (cC) cuisineSet.add(cC);
       const cM = String(co.menuCategory ?? co.category ?? "").trim();
       if (cM) menuSet.add(cM);
       for (const id of getComboLineProductIds(co)) {
         const p = productLookupMap.get(String(id));
         if (!p) continue;
-        const cu = getProductCuisine(/** @type {Record<string, unknown>} */ (p));
-        if (cu) cuisineSet.add(cu);
         const me = getShopMenuSectionLabel(/** @type {Record<string, unknown>} */ (p));
         if (me) menuSet.add(me);
       }
     }
     if (menuSet.size > 1) menuSet.delete("Menu");
-    const sortStr = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
-    return {
-      cuisineList: Array.from(cuisineSet).sort(sortStr),
-      menuCategoryList: Array.from(menuSet).sort(sortStr),
-    };
+    const labels = sortMenuSectionLabelsBySequence(
+      Array.from(menuSet),
+      sessionBaseProducts,
+      sessionBaseCombos,
+      productLookupMap
+    );
+    return { menuCategoryList: labels };
   }, [sessionBaseProducts, sessionBaseCombos, productLookupMap]);
 
   const combosInHorizontalRailFiltered = useMemo(() => {
@@ -609,6 +700,16 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     }
     return productsFilteredByPill;
   }, [productsFilteredByPill, otherProductsNotInGroupMenus, sessionResolved, sessionLocked, debouncedSearch, viewFilter]);
+
+  const buyerMenuTree = useMemo(
+    () => groupProductsByCuisineMenuItemCategory(productsToRender),
+    [productsToRender]
+  );
+
+  const openProductDetail = useCallback((product, productMeta) => {
+    setActiveProduct(product);
+    setActiveProductMeta(productMeta);
+  }, []);
 
   const combosToShow = useMemo(() => {
     return sessionBaseCombos.filter(
@@ -720,7 +821,9 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
   const hoursCompact = formatSellerHoursCompact(seller);
 
   const openLabel =
-    openState === "open"
+    !isLive
+      ? { text: "Offline", cls: "bs-pill bs-pill--closed" }
+      : openState === "open"
       ? { text: "Open", cls: "bs-pill bs-pill--open" }
       : openState === "closed"
         ? { text: "Closed", cls: "bs-pill bs-pill--closed" }
@@ -747,70 +850,6 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
 
   const showUnavailable =
     hasNothingAssigned || (rawMenuGroups.length > 0 && hasMenuAssignments && !sessionBaseProducts.length && !sessionBaseCombos.length && !combosLoading && !productsLoading);
-
-  function renderProductGrid(list, sectionKey) {
-    return (
-      <ul className="bs-pgrid bs-pgrid--item-premium" key={sectionKey}>
-        {list.map((p) => {
-          const meta = getProductOfferMeta(/** @type {Record<string, unknown>} */ (p));
-          return (
-            <ProductCard
-              key={`${sectionKey}-${p.id}`}
-              p={p}
-              meta={meta}
-              sellerId={sellerId}
-              addItem={addItem}
-              setQty={setQty}
-              line={lineById.get(String(p.id))}
-              categoryLabel={menuSlotLabel(
-                getProductMenuSlot(/** @type {Record<string, unknown>} */ (p), meta)
-              )}
-              compact
-            />
-          );
-        })}
-      </ul>
-    );
-  }
-
-  function renderProductsWithCategories(products, keyPrefix) {
-    const tree = groupProductsByCuisineMenuItemCategory(products);
-    if (!tree.length) return null;
-
-    return (
-      <>
-        {tree.map((cuisineNode) => (
-          <div
-            key={`${keyPrefix}-cuisine-${cuisineNode.cuisineKey}`}
-            className="bs-menu-hierarchy bs-menu-hierarchy--cuisine"
-          >
-            <h2 className="bs-menu-hierarchy__cuisine">{cuisineNode.cuisineTitle}</h2>
-            {cuisineNode.menus.map((menuNode) => (
-              <div
-                key={`${keyPrefix}-menu-${cuisineNode.cuisineKey}-${menuNode.menuKey}`}
-                className="bs-menu-hierarchy bs-menu-hierarchy--menu"
-              >
-                <h3 className="bs-menu-hierarchy__menu">{menuNode.menuTitle}</h3>
-                {menuNode.itemCategories.map((ic) => (
-                  <div
-                    key={`${keyPrefix}-ic-${cuisineNode.cuisineKey}-${menuNode.menuKey}-${ic.itemCategoryKey}`}
-                    className="bs-item-type-block"
-                  >
-                    {ic.hasItemCategory ? (
-                      <h4 className="bs-menu-hierarchy__item-category bs-item-type-heading">
-                        {ic.itemCategoryTitle}
-                      </h4>
-                    ) : null}
-                    {renderProductGrid(ic.list, `${keyPrefix}-${cuisineNode.cuisineKey}-${menuNode.menuKey}-${ic.itemCategoryKey}`)}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        ))}
-      </>
-    );
-  }
 
   const comboRailList =
     sessionResolved.mode === "combosOnly" ? combosToShow : combosInHorizontalRailFiltered;
@@ -850,7 +889,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
                 </span>
               ) : null}
               <span className={openLabel.cls} title="Shop open status">
-                {openState === "open" ? "Open" : openState === "closed" ? "Closed" : "Hours TBC"}
+                {openLabel.text}
               </span>
               <span className="bs-pill bs-pill--muted" title="Delivery or pickup">
                 {deliveryOn ? "Delivery" : "Pickup"}
@@ -895,39 +934,19 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
         </div>
         {sessionResolved.mode !== "combosOnly" ? (
           <div className="bs-filter-dock">
-            <div className="bs-filter-block">
-              <span className="bs-filter-block__label">Cuisine</span>
-              <div className="bs-filter-row" role="tablist" aria-label="Cuisine">
-                <button
-                  type="button"
-                  role="tab"
-                  className={`bs-chip${activeFilterId === "all" ? " bs-chip--active" : ""}`}
-                  aria-selected={activeFilterId === "all"}
-                  onClick={() => setActiveFilterId("all")}
-                >
-                  All
-                </button>
-                {cuisineList.map((cu) => {
-                  const fid = `c-${encodeURIComponent(cu)}`;
-                  return (
-                    <button
-                      key={fid}
-                      type="button"
-                      role="tab"
-                      className={`bs-chip${activeFilterId === fid ? " bs-chip--active" : ""}`}
-                      aria-selected={activeFilterId === fid}
-                      onClick={() => setActiveFilterId(fid)}
-                    >
-                      {cu}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
             {menuCategoryList.length > 0 ? (
               <div className="bs-filter-block">
                 <span className="bs-filter-block__label">Menu</span>
                 <div className="bs-filter-row" role="tablist" aria-label="Menu category">
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`bs-chip${activeFilterId === "all" ? " bs-chip--active" : ""}`}
+                    aria-selected={activeFilterId === "all"}
+                    onClick={() => setActiveFilterId("all")}
+                  >
+                    All
+                  </button>
                   {menuCategoryList.map((mc) => {
                     const fid = `g-${encodeURIComponent(mc)}`;
                     return (
@@ -1058,7 +1077,14 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
 
       {sessionResolved.mode === "combosOnly" ? null : !showUnavailable && (productsToRender.length > 0 || productsLoading) ? (
         <section className="bs-section bs-section--items" aria-label="Menu items">
-          {renderProductsWithCategories(productsToRender, "items")}
+          <BuyerMenuHierarchy
+            tree={buyerMenuTree}
+            sellerId={sellerId}
+            lineById={lineById}
+            addItem={addItem}
+            setQty={setQty}
+            onOpenProductDetail={openProductDetail}
+          />
         </section>
       ) : !showUnavailable && !showProductSkeleton && !productsLoading && sessionResolved.mode !== "combosOnly" && debouncedSearch.trim() && productsToRender.length === 0 && sessionBaseProducts.length > 0 ? (
         <p className="bs-rail__empty">No matches for that search.</p>
@@ -1094,6 +1120,35 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
           <span className="bs-float-cart__cta">View cart</span>
         </Link>
       ) : null}
+      <ItemDetailModal
+        open={Boolean(activeProduct)}
+        product={activeProduct}
+        meta={activeProductMeta}
+        line={activeProduct?.id != null ? lineById.get(String(activeProduct.id)) : null}
+        lineId={activeProduct?.id != null ? String(activeProduct.id) : ""}
+        onClose={() => {
+          setActiveProduct(null);
+          setActiveProductMeta(null);
+        }}
+        onSetQty={(id, qty) => setQty(id, qty)}
+        onAdd={(qty) => {
+          if (!activeProduct || !activeProductMeta) return;
+          addItem({
+            id: activeProduct.id,
+            productId: activeProduct.id,
+            kind: activeProductMeta.hasDiscount ? "discount" : "product",
+            name: activeProduct.name || "Item",
+            price: activeProductMeta.price,
+            originalPrice: activeProductMeta.originalPrice,
+            offerLabel: activeProductMeta.offerLabel || "",
+            sellerId,
+            qty,
+            imageUrl: String(activeProduct.imageUrl || activeProduct.image || ""),
+            prepTime: "",
+            notes: "",
+          });
+        }}
+      />
     </div>
   );
 }

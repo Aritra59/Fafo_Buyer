@@ -5,6 +5,7 @@ import {
   getDocs,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
   updateDoc,
   where,
@@ -13,6 +14,36 @@ import { db } from "../firebase/config";
 
 const ordersCol = () => collection(db, "orders");
 const orderDoc = (id) => doc(db, "orders", id);
+const dailyOrderCounterDoc = (dateKey) => doc(db, "orderCounters", dateKey);
+
+function localDateKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}${m}${day}`;
+}
+
+async function nextFormattedOrderId() {
+  const dateKey = localDateKey();
+  const counterRef = dailyOrderCounterDoc(dateKey);
+  const nextSeq = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(counterRef);
+    const prev = snap.exists() ? Number(snap.data()?.lastSequence || 0) : 0;
+    const next = Number.isFinite(prev) && prev >= 0 ? prev + 1 : 1;
+    tx.set(
+      counterRef,
+      {
+        dateKey,
+        lastSequence: next,
+        updatedAtMs: Date.now(),
+      },
+      { merge: true }
+    );
+    return next;
+  });
+  return `FF-ORD-${dateKey}-${String(nextSeq).padStart(5, "0")}`;
+}
 
 /**
  * @param {{ buyerId?: string, buyerPhone?: string }} keys
@@ -120,9 +151,10 @@ export function subscribeOrderById(orderId, onData, onError) {
  *   sellerName?: string,
  *   buyerGuest?: boolean,
  * }} payload
- * @returns {Promise<string>} new order document id
+ * @returns {Promise<{ id: string, orderId: string }>} new order identifiers
  */
 export async function createOrder(payload) {
+  const formattedOrderId = await nextFormattedOrderId();
   const ts = serverTimestamp();
   const ref = await addDoc(ordersCol(), {
     sellerId: payload.sellerId,
@@ -142,11 +174,12 @@ export async function createOrder(payload) {
     paymentMode: payload.paymentMode,
     source: String(payload.source || "app").trim() || "app",
     status: "new",
+    orderId: formattedOrderId,
     createdAt: ts,
     updatedAt: ts,
   });
-  await updateDoc(ref, { orderId: ref.id });
-  return ref.id;
+  await updateDoc(ref, { orderId: formattedOrderId });
+  return { id: ref.id, orderId: formattedOrderId };
 }
 
 /**

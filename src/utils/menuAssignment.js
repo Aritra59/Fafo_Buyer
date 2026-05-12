@@ -3,6 +3,24 @@
  * @param {unknown} raw
  * @returns {string}
  */
+/**
+ * When menu rows are objects (e.g. `{ productId, sequence }`), honor `sequence` / `sortOrder` for buyer order.
+ * @param {unknown[] | null | undefined} rows
+ * @returns {unknown[]}
+ */
+function sortMenuEmbedRows(rows) {
+  if (!Array.isArray(rows) || rows.length < 2) return Array.isArray(rows) ? rows : [];
+  const allObj = rows.every((x) => x != null && typeof x === "object" && !Array.isArray(x));
+  if (!allObj) return rows;
+  return [...rows].sort((a, b) =>
+    compareBySequenceAndCreatedAt(
+      /** @type {Record<string, unknown>} */ (a),
+      /** @type {Record<string, unknown>} */ (b),
+      /** @type {const} */ (["sequence", "sortOrder", "order"])
+    )
+  );
+}
+
 export function normalizeMenuIdRef(raw) {
   if (raw == null) return "";
   if (typeof raw === "string" || typeof raw === "number") {
@@ -31,9 +49,10 @@ export function extractMenuProductIds(group) {
   if (!group) return [];
   const g = /** @type {Record<string, unknown>} */ (group);
   const direct = g.productIds ?? g.productIDList ?? g.product_id_list;
-  const items = g.items ?? g.menuItems ?? g.products ?? g.dishIds;
+  const itemsRaw = g.items ?? g.menuItems ?? g.products ?? g.dishIds;
+  const items = Array.isArray(itemsRaw) ? sortMenuEmbedRows(itemsRaw) : [];
   const fromDirect = Array.isArray(direct) ? direct.map(normalizeMenuIdRef).filter(Boolean) : [];
-  const fromItems = Array.isArray(items) ? items.map(normalizeMenuIdRef).filter(Boolean) : [];
+  const fromItems = items.map(normalizeMenuIdRef).filter(Boolean);
   if (fromDirect.length && fromItems.length) {
     const seen = new Set(fromDirect);
     const rest = fromItems.filter((id) => {
@@ -54,9 +73,10 @@ export function extractMenuComboIds(group) {
   if (!group) return [];
   const g = /** @type {Record<string, unknown>} */ (group);
   const direct = g.comboIds ?? g.combo_ids ?? g.comboIDList ?? g.combo_id_list;
-  const nested = g.combos ?? g.comboItems;
+  const nestedRaw = g.combos ?? g.comboItems;
+  const nested = Array.isArray(nestedRaw) ? sortMenuEmbedRows(nestedRaw) : [];
   const fromDirect = Array.isArray(direct) ? direct.map(normalizeMenuIdRef).filter(Boolean) : [];
-  const fromNested = Array.isArray(nested) ? nested.map(normalizeMenuIdRef).filter(Boolean) : [];
+  const fromNested = nested.map(normalizeMenuIdRef).filter(Boolean);
   if (fromDirect.length && fromNested.length) {
     const seen = new Set(fromDirect);
     const rest = fromNested.filter((id) => {
@@ -140,6 +160,71 @@ export function lookupComboByMenuRef(map, ref) {
   return map.get(k);
 }
 
+function toEpochMs(raw) {
+  if (raw == null) return Number.POSITIVE_INFINITY;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw < 1e12 ? raw * 1000 : raw;
+  if (typeof raw === "string") {
+    const asNum = Number(raw);
+    if (Number.isFinite(asNum)) return asNum < 1e12 ? asNum * 1000 : asNum;
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+  }
+  if (typeof raw === "object") {
+    const o = /** @type {Record<string, unknown>} */ (raw);
+    if (typeof o.toMillis === "function") {
+      const v = o.toMillis();
+      if (Number.isFinite(v)) return Number(v);
+    }
+    if (typeof o.seconds === "number") return o.seconds * 1000;
+    if (typeof o._seconds === "number") return o._seconds * 1000;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+function toSeq(raw) {
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+}
+
+function bestSeq(p, keys) {
+  const o = /** @type {Record<string, unknown>} */ (p || {});
+  for (const k of keys) {
+    const v = toSeq(o[k]);
+    if (Number.isFinite(v)) return v;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+export function compareBySequenceAndCreatedAt(a, b, sequenceKeys = ["sequence", "sortOrder"]) {
+  const sa = bestSeq(a, sequenceKeys);
+  const sb = bestSeq(b, sequenceKeys);
+  if (sa !== sb) return sa - sb;
+  const oa = /** @type {Record<string, unknown>|null|undefined} */ (a);
+  const ob = /** @type {Record<string, unknown>|null|undefined} */ (b);
+  const ca = toEpochMs(oa?.createdAt ?? oa?.created_at);
+  const cb = toEpochMs(ob?.createdAt ?? ob?.created_at);
+  if (ca !== cb) return ca - cb;
+  return String(a?.name ?? a?.title ?? a?.slug ?? a?.id ?? "").localeCompare(
+    String(b?.name ?? b?.title ?? b?.slug ?? b?.id ?? ""),
+    undefined,
+    { sensitivity: "base", numeric: true }
+  );
+}
+
+/** Single pipeline: `sequence` (and scoped sequence fields), then earliest `createdAt`. */
+export const BUYER_PRODUCT_SEQUENCE_KEYS =
+  /** @type {readonly ["sequence", "itemSequence", "sortOrder"]} */ (["sequence", "itemSequence", "sortOrder"]);
+export const BUYER_COMBO_SEQUENCE_KEYS =
+  /** @type {readonly ["sequence", "comboSequence", "sortOrder"]} */ (["sequence", "comboSequence", "sortOrder"]);
+export const BUYER_MENU_GROUP_SEQUENCE_KEYS =
+  /** @type {readonly ["sequence", "sortOrder"]} */ (["sequence", "sortOrder"]);
+
+/** For tie-breaking buckets by earliest document time (matches {@link compareBySequenceAndCreatedAt}). */
+export function arrangementCreatedMs(record) {
+  const o = record && typeof record === "object" ? /** @type {Record<string, unknown>} */ (record) : null;
+  return toEpochMs(o?.createdAt ?? o?.created_at);
+}
+
 export function groupProductsByCategory(products) {
   const m = new Map();
   for (const p of products || []) {
@@ -213,23 +298,91 @@ export function compareCategoryDisplayTitles(a, b) {
 }
 
 /**
+ * Order filter-chip labels like the seller menu: min menu-level sequence ASC, then title.
+ * @param {Iterable<string>} labels
+ * @param {Record<string, unknown>[]} products
+ * @param {Record<string, unknown>[]} combos
+ * @param {Map<string, Record<string, unknown>> | null | undefined} productLookupMap
+ * @returns {string[]}
+ */
+export function sortMenuSectionLabelsBySequence(labels, products, combos, productLookupMap) {
+  const arr = Array.from(labels);
+  /** @type {Map<string, number>} */
+  const minSeq = new Map();
+  /** @type {Map<string, number>} */
+  const minCreated = new Map();
+  const bumpSeq = (label, seqVal) => {
+    const L = String(label || "").trim();
+    if (!L) return;
+    const s = Number(seqVal);
+    const v = Number.isFinite(s) ? s : Number.POSITIVE_INFINITY;
+    const prev = minSeq.get(L);
+    if (prev == null || v < prev) minSeq.set(L, v);
+  };
+  const bumpCreated = (label, t) => {
+    const L = String(label || "").trim();
+    if (!L) return;
+    const prev = minCreated.get(L);
+    if (prev == null || t < prev) minCreated.set(L, t);
+  };
+  for (const p of products || []) {
+    if (!p) continue;
+    const pr = /** @type {Record<string, unknown>} */ (p);
+    const lab = getShopMenuSectionLabel(pr);
+    bumpSeq(
+      lab,
+      bestSeq(pr, ["menuCategorySequence", "menu_category_sequence", "menuSequence", "menuSortOrder"])
+    );
+    bumpCreated(lab, arrangementCreatedMs(pr));
+  }
+  for (const c of combos || []) {
+    if (!c) continue;
+    const co = /** @type {Record<string, unknown>} */ (c);
+    const cM = String(co.menuCategory ?? co.category ?? "").trim();
+    if (cM) {
+      bumpSeq(cM, bestSeq(co, BUYER_COMBO_SEQUENCE_KEYS));
+      bumpCreated(cM, arrangementCreatedMs(co));
+    }
+    const lineIds = extractMenuProductIds(
+      /** @type {Record<string, unknown>} */ ({
+        productIds: co.productIds,
+        items: co.items ?? co.itemList ?? co.comboItems,
+      })
+    );
+    for (const id of lineIds) {
+      const p = productLookupMap?.get(String(id));
+      if (!p) continue;
+      const pr = /** @type {Record<string, unknown>} */ (p);
+      const lab = getShopMenuSectionLabel(pr);
+      bumpSeq(lab, bestSeq(pr, ["menuCategorySequence", "menu_category_sequence", "menuSequence", "menuSortOrder"]));
+      bumpCreated(lab, arrangementCreatedMs(pr));
+    }
+  }
+  arr.sort((a, b) => {
+    const sa = minSeq.get(String(a)) ?? Number.POSITIVE_INFINITY;
+    const sb = minSeq.get(String(b)) ?? Number.POSITIVE_INFINITY;
+    if (sa !== sb) return sa - sb;
+    const ca = minCreated.get(String(a)) ?? Number.POSITIVE_INFINITY;
+    const cb = minCreated.get(String(b)) ?? Number.POSITIVE_INFINITY;
+    if (ca !== cb) return ca - cb;
+    return compareCategoryDisplayTitles(a, b);
+  });
+  return arr;
+}
+
+/**
  * @param {Record<string, unknown>[]} arr
  */
-function sortProductsByName(arr) {
+function sortProductsInCategory(arr) {
   const list = [...(arr || [])];
   list.sort((a, b) =>
-    String(a?.name ?? "")
-      .trim()
-      .localeCompare(String(b?.name ?? "").trim(), undefined, {
-        sensitivity: "base",
-        numeric: true,
-      })
+    compareBySequenceAndCreatedAt(/** @type {Record<string, unknown>} */ (a), /** @type {Record<string, unknown>} */ (b), BUYER_PRODUCT_SEQUENCE_KEYS)
   );
   return list;
 }
 
 /**
- * Cuisine name → Menu name → Item category name buckets; dish lists sorted by name.
+ * Cuisine name → Menu name → Item category name buckets; dishes sorted by seller sequence.
  * @returns {{
  *   cuisineKey: string,
  *   cuisineTitle: string,
@@ -246,8 +399,8 @@ function sortProductsByName(arr) {
  * }[]}
  */
 export function groupProductsByCuisineMenuItemCategory(products) {
-  /** @typedef {{ title: string, cats: Map<string, { title: string, items: Record<string, unknown>[] }> }} MenuAcc */
-  /** @type Map<string, { title: string, menus: Map<string, MenuAcc> }> */
+  /** @typedef {{ title: string, seq: number, cats: Map<string, { title: string, seq: number, items: Record<string, unknown>[] }> }} MenuAcc */
+  /** @type Map<string, { title: string, seq: number, menus: Map<string, MenuAcc> }> */
   const byCuisine = new Map();
 
   for (const p of products || []) {
@@ -260,29 +413,66 @@ export function groupProductsByCuisineMenuItemCategory(products) {
 
     const { mergeKey: icKey, title: catTitle } = itemCategoryNameFromProduct(pr);
 
+    const cuisineSeq = bestSeq(pr, [
+      "cuisineCategorySequence",
+      "cuisine_sequence",
+      "cuisineSequence",
+      "cuisineSortOrder",
+    ]);
+    const menuSeq = bestSeq(pr, [
+      "menuCategorySequence",
+      "menu_category_sequence",
+      "menuSequence",
+      "menuSortOrder",
+    ]);
+    const itemCategorySeq = bestSeq(pr, [
+      "itemCategorySequence",
+      "item_category_sequence",
+      "itemTypeSequence",
+      "itemSortOrder",
+    ]);
+    const pCreated = arrangementCreatedMs(pr);
+
     if (!byCuisine.has(ck)) {
-      byCuisine.set(ck, { title: cTitle, menus: new Map() });
+      byCuisine.set(ck, { title: cTitle, seq: cuisineSeq, minCreated: pCreated, menus: new Map() });
     }
     const cuis = byCuisine.get(ck);
     if (!cuis) continue;
+    if (cuisineSeq < cuis.seq) cuis.seq = cuisineSeq;
+    if (pCreated < cuis.minCreated) cuis.minCreated = pCreated;
 
     if (!cuis.menus.has(mk)) {
-      cuis.menus.set(mk, { title: menuTitle, cats: new Map() });
+      cuis.menus.set(mk, { title: menuTitle, seq: menuSeq, minCreated: pCreated, cats: new Map() });
     }
     const mu = cuis.menus.get(mk);
     if (!mu) continue;
+    if (menuSeq < mu.seq) mu.seq = menuSeq;
+    if (pCreated < mu.minCreated) mu.minCreated = pCreated;
 
     const existingCat = mu.cats.get(icKey);
     if (!existingCat) {
-      mu.cats.set(icKey, { title: catTitle, items: [pr] });
+      mu.cats.set(icKey, {
+        title: catTitle,
+        seq: itemCategorySeq,
+        minCreated: pCreated,
+        items: [pr],
+      });
     } else {
+      if (itemCategorySeq < existingCat.seq) existingCat.seq = itemCategorySeq;
       existingCat.items.push(pr);
+      if (pCreated < existingCat.minCreated) existingCat.minCreated = pCreated;
     }
   }
 
   const sortedCuisineKeys = Array.from(byCuisine.keys()).sort((ka, kb) => {
-    const ta = /** @type {string} */(byCuisine.get(ka)?.title ?? "Other");
-    const tb = /** @type {string} */(byCuisine.get(kb)?.title ?? "Other");
+    const ca = byCuisine.get(ka);
+    const cb = byCuisine.get(kb);
+    const sdiff = (ca?.seq ?? Number.POSITIVE_INFINITY) - (cb?.seq ?? Number.POSITIVE_INFINITY);
+    if (sdiff !== 0) return sdiff;
+    const dcr = (ca?.minCreated ?? Number.POSITIVE_INFINITY) - (cb?.minCreated ?? Number.POSITIVE_INFINITY);
+    if (dcr !== 0) return dcr;
+    const ta = /** @type {string} */ (ca?.title ?? "Other");
+    const tb = /** @type {string} */ (cb?.title ?? "Other");
     return compareCategoryDisplayTitles(ta, tb);
   });
 
@@ -293,8 +483,14 @@ export function groupProductsByCuisineMenuItemCategory(products) {
     const node = byCuisine.get(ck);
     if (!node) continue;
     const menuKeysSorted = Array.from(node.menus.keys()).sort((ka, kb) => {
-      const ta = /** @type {string} */(node.menus.get(ka)?.title ?? "Other");
-      const tb = /** @type {string} */(node.menus.get(kb)?.title ?? "Other");
+      const ma = node.menus.get(ka);
+      const mb = node.menus.get(kb);
+      const sdiff = (ma?.seq ?? Number.POSITIVE_INFINITY) - (mb?.seq ?? Number.POSITIVE_INFINITY);
+      if (sdiff !== 0) return sdiff;
+      const dcr = (ma?.minCreated ?? Number.POSITIVE_INFINITY) - (mb?.minCreated ?? Number.POSITIVE_INFINITY);
+      if (dcr !== 0) return dcr;
+      const ta = /** @type {string} */ (ma?.title ?? "Other");
+      const tb = /** @type {string} */ (mb?.title ?? "Other");
       return compareCategoryDisplayTitles(ta, tb);
     });
 
@@ -305,14 +501,20 @@ export function groupProductsByCuisineMenuItemCategory(products) {
       const mn = node.menus.get(mk);
       if (!mn) continue;
       const catKeysSorted = Array.from(mn.cats.keys()).sort((ixa, ixb) => {
-        const ta = /** @type {string} */(mn.cats.get(ixa)?.title ?? "Other");
-        const tb = /** @type {string} */(mn.cats.get(ixb)?.title ?? "Other");
+        const ca = mn.cats.get(ixa);
+        const cb = mn.cats.get(ixb);
+        const sdiff = (ca?.seq ?? Number.POSITIVE_INFINITY) - (cb?.seq ?? Number.POSITIVE_INFINITY);
+        if (sdiff !== 0) return sdiff;
+        const dcr = (ca?.minCreated ?? Number.POSITIVE_INFINITY) - (cb?.minCreated ?? Number.POSITIVE_INFINITY);
+        if (dcr !== 0) return dcr;
+        const ta = /** @type {string} */ (ca?.title ?? "Other");
+        const tb = /** @type {string} */ (cb?.title ?? "Other");
         return compareCategoryDisplayTitles(ta, tb);
       });
 
       const itemCategories = catKeysSorted.map((ik) => {
         const cg = mn.cats.get(ik);
-        const listSorted = cg ? sortProductsByName(cg.items) : [];
+        const listSorted = cg ? sortProductsInCategory(cg.items) : [];
         const itemCategoryTitle = String(cg?.title ?? "").trim();
         return {
           itemCategoryKey: ik,

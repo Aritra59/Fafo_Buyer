@@ -1,5 +1,6 @@
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../firebase/config";
+import { BUYER_MENU_GROUP_SEQUENCE_KEYS, compareBySequenceAndCreatedAt } from "../utils/menuAssignment";
 
 /**
  * Public buyer reads: ensure Firestore rules allow `list` on `menuGroups` for active docs
@@ -18,7 +19,9 @@ const col = () => collection(db, "menuGroups");
  *  comboIds?: string[],
  *  items?: unknown[],
  *  active?: boolean,
- *  sortOrder?: number
+ *  sequence?: number,
+ *  sortOrder?: number,
+ *  createdAt?: unknown,
  * }} MenuGroupDoc
  */
 
@@ -44,6 +47,8 @@ export function subscribeMenuGroupsBySeller(sellerId, onData, onError) {
           const data = d.data() || {};
           const comboRaw = data.comboIds ?? data.combo_ids ?? data.comboIDList;
           const itemsRaw = data.items ?? data.menuItems ?? data.products;
+          const seq = data.sequence;
+          const seqNum = seq != null && Number.isFinite(Number(seq)) ? Number(seq) : undefined;
           return /** @type {MenuGroupDoc} */ ({
             id: d.id,
             sellerId: data.sellerId,
@@ -54,11 +59,17 @@ export function subscribeMenuGroupsBySeller(sellerId, onData, onError) {
             items: Array.isArray(itemsRaw) ? itemsRaw : [],
             active: data.active,
             sortOrder: data.sortOrder,
+            ...(seqNum != null ? { sequence: seqNum } : {}),
+            createdAt: data.createdAt ?? data.created_at,
           });
         })
         .filter((g) => g.active !== false);
-      list.sort(
-        (a, b) => (Number(a.sortOrder) || 0) - (Number(b.sortOrder) || 0)
+      list.sort((a, b) =>
+        compareBySequenceAndCreatedAt(
+          /** @type {Record<string, unknown>} */ (a),
+          /** @type {Record<string, unknown>} */ (b),
+          BUYER_MENU_GROUP_SEQUENCE_KEYS
+        )
       );
       onData(list);
     },

@@ -269,7 +269,7 @@ export default function CartPage() {
         ? addr || (deliveryEnabled ? "Delivery (confirm with shop)" : "Pickup at shop")
         : addr;
 
-      const orderId = await createOrder({
+      const orderResult = await createOrder({
         sellerId,
         buyerId: user?.uid || "",
         buyerPhone: buyerPhoneE164,
@@ -286,6 +286,8 @@ export default function CartPage() {
         paymentMode,
         source: getOrderSourceFromSession(),
       });
+      const orderDocId = orderResult?.id || "";
+      const orderId = orderResult?.orderId || orderDocId;
 
       markOrderPlacedForThrottle(buyerPhoneE164);
       setCheckoutOpen(false);
