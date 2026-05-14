@@ -2256,6 +2256,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
   display: block;
 }
 
@@ -3178,19 +3179,34 @@
 .bs-item-modal__close {
   position: absolute;
   right: 0.6rem;
-  top: 0.6rem;
-  width: 2rem;
-  height: 2rem;
+  top: max(0.6rem, env(safe-area-inset-top, 0px));
+  z-index: 5;
+  width: 2.25rem;
+  height: 2.25rem;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(24, 24, 27, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(12, 12, 14, 0.92);
   color: #fafaf9;
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+
+.bs-item-modal__close:hover {
+  background: rgba(39, 39, 42, 0.95);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.bs-item-modal__close:focus-visible {
+  outline: 2px solid rgba(45, 226, 230, 0.65);
+  outline-offset: 2px;
 }
 
 .bs-item-modal__media {
+  position: relative;
+  z-index: 0;
   width: 100%;
 }
 
@@ -3198,6 +3214,267 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
+}
+
+/* --- Product variant bottom sheet --- */
+.bs-overlay--variant {
+  z-index: 270;
+}
+
+.bs-sheet--variant {
+  position: relative;
+  padding-bottom: calc(1rem + var(--nb-safe-bottom, 0px));
+}
+
+.bs-variant-sheet__close {
+  position: absolute;
+  right: 0.65rem;
+  top: 0.55rem;
+  z-index: 2;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(24, 24, 27, 0.88);
+  color: #fafaf9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bs-variant-sheet__hero {
+  margin: 0 -1rem;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.bs-variant-sheet__media {
+  width: 100%;
+}
+
+.bs-variant-sheet__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.bs-variant-sheet__title {
+  margin: 0.55rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  padding-right: 2.25rem;
+}
+
+.bs-variant-sheet__desc {
+  margin: 0.35rem 0 0;
+  color: #94a3b8;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.bs-variant-sheet__hint {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.78rem;
+  color: #8b9aad;
+}
+
+.bs-variant-sheet__section-label {
+  margin: 0.65rem 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+
+.bs-variant-sheet__options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: min(40vh, 280px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bs-variant-sheet__opt-li {
+  margin: 0;
+}
+
+.bs-variant-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+}
+
+.bs-variant-opt--checked {
+  border-color: rgba(45, 226, 230, 0.45);
+  background: rgba(45, 226, 230, 0.08);
+}
+
+.bs-variant-opt__radio {
+  margin-top: 0.2rem;
+  flex: 0 0 auto;
+  accent-color: #2de2e6;
+}
+
+.bs-variant-opt__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.bs-variant-opt__label {
+  font-size: 0.88rem;
+  font-weight: 650;
+  color: #f1f5f9;
+}
+
+.bs-variant-opt__sub {
+  font-size: 0.74rem;
+  color: #94a3b8;
+  line-height: 1.25;
+}
+
+.bs-variant-opt__price {
+  flex: 0 0 auto;
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+
+.bs-variant-opt__strike {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-decoration: line-through;
+  text-align: right;
+}
+
+.bs-variant-sheet__qty-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.65rem;
+  gap: 0.75rem;
+}
+
+.bs-variant-sheet__qty-label {
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #cbd5e1;
+}
+
+.bs-variant-sheet__notes {
+  margin-top: 0.55rem;
+  display: block;
+}
+
+.bs-variant-sheet__textarea {
+  width: 100%;
+  margin-top: 0.25rem;
+  resize: vertical;
+  min-height: 2.6rem;
+  font-family: inherit;
+}
+
+.bs-variant-sheet__cta {
+  width: 100%;
+  margin-top: 0.75rem;
+  min-height: 2.55rem;
+  border-radius: 12px;
+  border: 1px solid rgba(212, 196, 168, 0.3);
+  background: linear-gradient(160deg, #57534e 0%, #44403c 100%);
+  color: #fafaf9;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.bs-variant-sheet__cta:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.bs-combo-variant-block + .bs-combo-variant-block {
+  margin-top: 0.35rem;
+}
+
+/* Product card: variant pricing + badge (compact) */
+.bs-pcard__variant-badge {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 0.12rem;
+  padding: 0.06rem 0.32rem;
+  border-radius: 4px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #a5f3fc;
+  border: 1px solid rgba(45, 226, 230, 0.35);
+  background: rgba(45, 226, 230, 0.08);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bs-pcard__from-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.35rem;
+  margin-top: 0.08rem;
+}
+
+.bs-pcard__from-prefix {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.bs-pcard__from-price {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #f1f5f9;
+}
+
+.bs-pcard__choose-hint {
+  width: 100%;
+  font-size: 0.62rem;
+  font-weight: 650;
+  color: #5eead4;
+  letter-spacing: 0.02em;
+}
+
+.bs-pcard__add-count {
+  position: absolute;
+  top: -0.28rem;
+  right: -0.28rem;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.2rem;
+  border-radius: 99px;
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1rem;
+  text-align: center;
+  color: #0f172a;
+  background: #5eead4;
+  border: 1px solid rgba(15, 23, 42, 0.35);
 }
 
 .bs-item-modal__body {
@@ -3220,6 +3497,28 @@
   font-weight: 800;
   font-size: 1rem;
   color: #fafaf9;
+}
+
+.bs-item-modal__from {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: #94a3b8;
+}
+
+.bs-item-modal__choose-hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: #5eead4;
+}
+
+.bs-item-modal__footer--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.bs-item-modal__footer--stack .bs-item-modal__cta {
+  width: 100%;
 }
 
 .bs-item-modal__meta {

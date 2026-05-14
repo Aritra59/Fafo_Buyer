@@ -403,6 +403,9 @@ export default function CartPage() {
                         {l.name}
                       </p>
                     </div>
+                    {l.subLabel ? (
+                      <p className="bs-cart-item__line bs-cart-item__variant-sub">{l.subLabel}</p>
+                    ) : null}
                     {l.comboSummary ? <p className="bs-cart-item__line">{l.comboSummary}</p> : null}
                     <div className="bs-cart-item__row">
                       <p className="bs-cart-item__price">

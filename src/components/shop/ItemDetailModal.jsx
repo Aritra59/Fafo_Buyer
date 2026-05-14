@@ -25,6 +25,8 @@ export default function ItemDetailModal({
   onSetQty,
   onAdd,
   lineId,
+  isVariantProduct = false,
+  onChooseOptions,
 }) {
   const [qty, setQty] = useState(1);
 
@@ -81,7 +83,17 @@ export default function ItemDetailModal({
         <div className="bs-item-modal__body">
           <h3 className="bs-item-modal__title">{String(product.name || "Item")}</h3>
           {description ? <p className="bs-item-modal__desc">{description}</p> : null}
-          <p className="bs-item-modal__price">{formatCurrencyInr(Number(meta.price) || 0)}</p>
+          {meta?.showFrom ? (
+            <>
+              <p className="bs-item-modal__price">
+                <span className="bs-item-modal__from">From </span>
+                {formatCurrencyInr(Number(meta.price) || 0)}
+              </p>
+              <p className="bs-item-modal__choose-hint">Choose size</p>
+            </>
+          ) : (
+            <p className="bs-item-modal__price">{formatCurrencyInr(Number(meta.price) || 0)}</p>
+          )}
           <div className="bs-item-modal__meta">
             {cuisine ? <span className="bs-item-modal__pill">{cuisine}</span> : null}
             {menuCategory ? <span className="bs-item-modal__pill">{menuCategory}</span> : null}
@@ -89,32 +101,72 @@ export default function ItemDetailModal({
               <span key={tag} className="bs-item-modal__pill">{tag}</span>
             ))}
           </div>
-          <div className="bs-item-modal__addons">
-            <strong>Add-ons / Modifiers</strong>
-            <p>Customization options are coming soon.</p>
-          </div>
-          <div className="bs-item-modal__footer">
-            <div className="bs-stepper bs-stepper--modal" role="group" aria-label="Quantity">
-              <button type="button" className="bs-stepper__btn" onClick={() => setQty((n) => Math.max(1, n - 1))} aria-label="Decrease quantity">
-                <Minus size={16} />
-              </button>
-              <span className="bs-stepper__qty">{qty}</span>
-              <button type="button" className="bs-stepper__btn" onClick={() => setQty((n) => n + 1)} aria-label="Increase quantity">
-                <Plus size={16} />
+          {!isVariantProduct ? (
+            <div className="bs-item-modal__addons">
+              <strong>Add-ons / Modifiers</strong>
+              <p>Customization options are coming soon.</p>
+            </div>
+          ) : null}
+          {isVariantProduct ? (
+            <div className="bs-item-modal__footer bs-item-modal__footer--stack">
+              {line && lineId ? (
+                <>
+                  <div className="bs-stepper bs-stepper--modal" role="group" aria-label="Quantity">
+                    <button type="button" className="bs-stepper__btn" onClick={() => setQty((n) => Math.max(1, n - 1))} aria-label="Decrease quantity">
+                      <Minus size={16} />
+                    </button>
+                    <span className="bs-stepper__qty">{qty}</span>
+                    <button type="button" className="bs-stepper__btn" onClick={() => setQty((n) => n + 1)} aria-label="Increase quantity">
+                      <Plus size={16} />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="bs-item-modal__cta"
+                    onClick={() => {
+                      if (lineId) onSetQty(lineId, qty);
+                      onClose();
+                    }}
+                  >
+                    Update quantity
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="bs-item-modal__cta"
+                  onClick={() => {
+                    if (typeof onChooseOptions === "function") onChooseOptions();
+                  }}
+                >
+                  Choose size
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="bs-item-modal__footer">
+              <div className="bs-stepper bs-stepper--modal" role="group" aria-label="Quantity">
+                <button type="button" className="bs-stepper__btn" onClick={() => setQty((n) => Math.max(1, n - 1))} aria-label="Decrease quantity">
+                  <Minus size={16} />
+                </button>
+                <span className="bs-stepper__qty">{qty}</span>
+                <button type="button" className="bs-stepper__btn" onClick={() => setQty((n) => n + 1)} aria-label="Increase quantity">
+                  <Plus size={16} />
+                </button>
+              </div>
+              <button
+                type="button"
+                className="bs-item-modal__cta"
+                onClick={() => {
+                  if (line && lineId) onSetQty(lineId, qty);
+                  else onAdd(qty);
+                  onClose();
+                }}
+              >
+                {line ? "Update quantity" : "Add to cart"}
               </button>
             </div>
-            <button
-              type="button"
-              className="bs-item-modal__cta"
-              onClick={() => {
-                if (line && lineId) onSetQty(lineId, qty);
-                else onAdd(qty);
-                onClose();
-              }}
-            >
-              {line ? "Update quantity" : "Add to cart"}
-            </button>
-          </div>
+          )}
         </div>
       </div>
     </div>

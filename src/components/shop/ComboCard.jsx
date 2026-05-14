@@ -3,6 +3,7 @@ import { Minus, Plus } from "lucide-react";
 import { LazyImage } from "../ui/LazyImage";
 import { formatCurrencyInr } from "../../utils/format";
 import { isComboUnavailable } from "../../utils/menuSections";
+import { buildDefaultComboVariantPicks, comboNeedsBuyerVariantPicks } from "../../utils/productVariants";
 
 function comboImageUrl(c) {
   const u = c.imageUrl ?? c.image;
@@ -91,7 +92,17 @@ function getComboImageUrls(c, productById, max = 4) {
  * @param {Map<string, Record<string, unknown>>} [productById]
  * @param {"rail"|"grid"} [layout]
  */
-function ComboCard({ c, sellerId, addItem, setQty, line, productById, compact = false, layout = "grid" }) {
+function ComboCard({
+  c,
+  sellerId,
+  addItem,
+  setQty,
+  line,
+  productById,
+  onComboAddIntent,
+  compact = false,
+  layout = "grid",
+}) {
   const img = comboImageUrl(c);
   const label = c.name || "Combo";
   const price = Number(c.price) || 0;
@@ -129,8 +140,23 @@ function ComboCard({ c, sellerId, addItem, setQty, line, productById, compact = 
     imageUrl: img || imageUrls[0] || "",
     prepTime: "",
     comboSummary: summary,
+    comboVariantPicks: buildDefaultComboVariantPicks(/** @type {Record<string, unknown>} */ (c), productById),
     notes: "",
   });
+
+  const addComboToCart = (e) => {
+    const el = e.currentTarget;
+    el.classList.add("bs-bounce");
+    window.setTimeout(() => el.classList.remove("bs-bounce"), 400);
+    if (
+      comboNeedsBuyerVariantPicks(/** @type {Record<string, unknown>} */ (c), productById) &&
+      typeof onComboAddIntent === "function"
+    ) {
+      onComboAddIntent(c);
+      return;
+    }
+    addItem(payload());
+  };
 
   const collageNodes =
     nShow > 0 ? (
@@ -199,12 +225,7 @@ function ComboCard({ c, sellerId, addItem, setQty, line, productById, compact = 
       <button
         type="button"
         className={`bs-pcard__add bs-ripple${compact ? " bs-pcard__add--minimal" : ""}`}
-        onClick={(e) => {
-          const el = e.currentTarget;
-          el.classList.add("bs-bounce");
-          window.setTimeout(() => el.classList.remove("bs-bounce"), 400);
-          addItem(payload());
-        }}
+        onClick={addComboToCart}
       >
         ADD
       </button>

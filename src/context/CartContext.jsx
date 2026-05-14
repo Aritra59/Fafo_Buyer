@@ -123,6 +123,13 @@ export function CartProvider({ children }) {
             ? Number(item.price)
             : copy[idx].price,
         notes: nextNotes,
+        variantId: item.variantId != null ? item.variantId : copy[idx].variantId,
+        variantLabel:
+          item.variantLabel != null ? String(item.variantLabel) : copy[idx].variantLabel,
+        subLabel: item.subLabel != null ? String(item.subLabel) : copy[idx].subLabel,
+        comboVariantPicks: Array.isArray(item.comboVariantPicks)
+          ? item.comboVariantPicks
+          : copy[idx].comboVariantPicks,
       };
       return copy;
     });

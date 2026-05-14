@@ -2,8 +2,12 @@ import { memo } from "react";
 import { Minus, Plus, Star } from "lucide-react";
 import { LazyImage } from "../ui/LazyImage";
 import { formatCurrencyInr } from "../../utils/format";
-import { getProductOfferMeta } from "../../utils/pricing";
 import { getVegType, isProductUnavailable } from "../../utils/menuSections";
+import {
+  getBuyerProductCardOfferMeta,
+  getVariantGroupBadgeText,
+  productHasSelectableVariants,
+} from "../../utils/productVariants";
 
 function formatPrepTime(p) {
   const raw =
@@ -55,8 +59,10 @@ function ProductCard({
   withDescription = false,
   horizontal = false,
   onOpenDetail,
+  variantSummary = null,
+  onOpenVariantSheet,
 }) {
-  const meta = metaIn || getProductOfferMeta(p);
+  const meta = metaIn || getBuyerProductCardOfferMeta(/** @type {Record<string, unknown>} */ (p));
   const img = productImageUrl(p);
   const label = p.name || "Item";
   const kind = meta.hasDiscount ? "discount" : "product";
@@ -71,6 +77,17 @@ function ProductCard({
     .find((s) => s.length > 0);
   const unavailable = isProductUnavailable(p);
   const vType = getVegType(p);
+  const hasVariants = productHasSelectableVariants(p);
+  const variantBadge = getVariantGroupBadgeText(p);
+  const vSum = hasVariants ? variantSummary : null;
+  const variantTotalQty =
+    vSum && typeof vSum.totalQty === "number" ? Math.max(0, Math.floor(vSum.totalQty)) : 0;
+  const variantDistinct =
+    vSum && typeof vSum.distinctVariants === "number" ? Math.max(0, Math.floor(vSum.distinctVariants)) : 0;
+  const variantSingleLine = vSum?.singleLine || null;
+  const variantSingleQty = variantSingleLine
+    ? Math.max(0, Math.floor(Number(variantSingleLine.qty) || 0))
+    : 0;
 
   const payload = () => ({
     id: p.id,
@@ -88,6 +105,10 @@ function ProductCard({
   });
   const openDetails = () => {
     if (typeof onOpenDetail === "function") onOpenDetail(p, meta);
+  };
+  const openVariantFlow = (e) => {
+    if (e) e.stopPropagation();
+    if (typeof onOpenVariantSheet === "function") onOpenVariantSheet(p, meta);
   };
 
   if (compact) {
@@ -124,11 +145,71 @@ function ProductCard({
               <h3 className="bs-pcard__title bs-pcard__title--hoz" title={label}>
                 {label}
               </h3>
-              <span className="bs-pcard__price bs-pcard__price--hoz">{formatCurrencyInr(meta.price)}</span>
+              {hasVariants && variantBadge ? (
+                <span className="bs-pcard__variant-badge" title={variantBadge}>
+                  {variantBadge}
+                </span>
+              ) : null}
+              {hasVariants && meta.showFrom ? (
+                <div className="bs-pcard__from-row">
+                  <span className="bs-pcard__from-prefix">From</span>
+                  <span className="bs-pcard__from-price">{formatCurrencyInr(meta.price)}</span>
+                  <span className="bs-pcard__choose-hint">Choose size</span>
+                </div>
+              ) : (
+                <span className="bs-pcard__price bs-pcard__price--hoz">{formatCurrencyInr(meta.price)}</span>
+              )}
             </div>
             <div className="bs-pcard__hoz-action">
               {unavailable ? (
                 <span className="bs-pcard__na">Unavailable</span>
+              ) : hasVariants ? (
+                variantDistinct === 1 && variantSingleLine ? (
+                  <div className="bs-stepper bs-stepper--minimal" role="group" aria-label="Quantity">
+                    <button
+                      type="button"
+                      className="bs-stepper__btn bs-stepper__btn--minus"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQty(variantSingleLine.id, variantSingleQty - 1);
+                      }}
+                      aria-label="Decrease"
+                    >
+                      <Minus size={16} strokeWidth={2.5} aria-hidden />
+                    </button>
+                    <span className="bs-stepper__qty">{variantSingleQty}</span>
+                    <button
+                      type="button"
+                      className="bs-stepper__btn bs-stepper__btn--plus"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQty(variantSingleLine.id, variantSingleQty + 1);
+                      }}
+                      aria-label="Increase"
+                    >
+                      <Plus size={16} strokeWidth={2.5} aria-hidden />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="bs-pcard__add bs-pcard__add--minimal bs-ripple"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const el = e.currentTarget;
+                      el.classList.add("bs-bounce");
+                      window.setTimeout(() => el.classList.remove("bs-bounce"), 400);
+                      openVariantFlow(e);
+                    }}
+                  >
+                    ADD
+                    {variantTotalQty > 0 && variantDistinct > 1 ? (
+                      <span className="bs-pcard__add-count" aria-label={`${variantTotalQty} in cart`}>
+                        {variantTotalQty > 9 ? "9+" : variantTotalQty}
+                      </span>
+                    ) : null}
+                  </button>
+                )
               ) : inCart && line ? (
                 <div className="bs-stepper bs-stepper--minimal" role="group" aria-label="Quantity">
                   <button
@@ -205,6 +286,11 @@ function ProductCard({
             <h3 className="bs-pcard__title bs-pcard__title--minimal" title={label}>
               {label}
             </h3>
+            {hasVariants && variantBadge ? (
+              <span className="bs-pcard__variant-badge" title={variantBadge}>
+                {variantBadge}
+              </span>
+            ) : null}
             {tags.length > 0 ? (
               <div className="bs-pcard__tags-row" aria-label="Tags">
                 {tags.slice(0, 2).map((tag, i) => (
@@ -224,11 +310,66 @@ function ProductCard({
               </p>
             ) : null}
             <div className="bs-pcard__row bs-pcard__row--minimal">
-              <span className="bs-pcard__price">{formatCurrencyInr(meta.price)}</span>
+              {hasVariants && meta.showFrom ? (
+                <div className="bs-pcard__from-row">
+                  <span className="bs-pcard__from-prefix">From</span>
+                  <span className="bs-pcard__from-price">{formatCurrencyInr(meta.price)}</span>
+                  <span className="bs-pcard__choose-hint">Choose size</span>
+                </div>
+              ) : (
+                <span className="bs-pcard__price">{formatCurrencyInr(meta.price)}</span>
+              )}
             </div>
             <div className="bs-pcard__action">
               {unavailable ? (
                 <span className="bs-pcard__na">Unavailable</span>
+              ) : hasVariants ? (
+                variantDistinct === 1 && variantSingleLine ? (
+                  <div className="bs-stepper bs-stepper--minimal" role="group" aria-label="Quantity">
+                    <button
+                      type="button"
+                      className="bs-stepper__btn bs-stepper__btn--minus"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQty(variantSingleLine.id, variantSingleQty - 1);
+                      }}
+                      aria-label="Decrease"
+                    >
+                      <Minus size={16} strokeWidth={2.5} aria-hidden />
+                    </button>
+                    <span className="bs-stepper__qty">{variantSingleQty}</span>
+                    <button
+                      type="button"
+                      className="bs-stepper__btn bs-stepper__btn--plus"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQty(variantSingleLine.id, variantSingleQty + 1);
+                      }}
+                      aria-label="Increase"
+                    >
+                      <Plus size={16} strokeWidth={2.5} aria-hidden />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="bs-pcard__add bs-pcard__add--minimal bs-ripple"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const el = e.currentTarget;
+                      el.classList.add("bs-bounce");
+                      window.setTimeout(() => el.classList.remove("bs-bounce"), 400);
+                      openVariantFlow(e);
+                    }}
+                  >
+                    ADD
+                    {variantTotalQty > 0 && variantDistinct > 1 ? (
+                      <span className="bs-pcard__add-count" aria-label={`${variantTotalQty} in cart`}>
+                        {variantTotalQty > 9 ? "9+" : variantTotalQty}
+                      </span>
+                    ) : null}
+                  </button>
+                )
               ) : inCart && line ? (
                 <div className="bs-stepper bs-stepper--minimal" role="group" aria-label="Quantity">
                   <button
@@ -312,15 +453,30 @@ function ProductCard({
             <h3 className="bs-pcard__title" title={label}>
               {label}
             </h3>
+            {hasVariants && variantBadge ? (
+              <span className="bs-pcard__variant-badge" title={variantBadge}>
+                {variantBadge}
+              </span>
+            ) : null}
           </div>
           {shortDesc ? <p className="bs-pcard__desc">{shortDesc.length > 80 ? `${shortDesc.slice(0, 80)}…` : shortDesc}</p> : null}
           <p className="bs-pcard__cat">{cat}</p>
           <div className="bs-pcard__row">
             <div className="bs-pcard__price-line">
-              <span className="bs-pcard__price">{formatCurrencyInr(meta.price)}</span>
-              {meta.originalPrice != null && meta.originalPrice > meta.price ? (
-                <span className="bs-pcard__strike">{formatCurrencyInr(meta.originalPrice)}</span>
-              ) : null}
+              {hasVariants && meta.showFrom ? (
+                <div className="bs-pcard__from-row">
+                  <span className="bs-pcard__from-prefix">From</span>
+                  <span className="bs-pcard__from-price">{formatCurrencyInr(meta.price)}</span>
+                  <span className="bs-pcard__choose-hint">Choose size</span>
+                </div>
+              ) : (
+                <>
+                  <span className="bs-pcard__price">{formatCurrencyInr(meta.price)}</span>
+                  {meta.originalPrice != null && meta.originalPrice > meta.price ? (
+                    <span className="bs-pcard__strike">{formatCurrencyInr(meta.originalPrice)}</span>
+                  ) : null}
+                </>
+              )}
             </div>
             {starTag && !unavailable ? (
               <span className="bs-pcard__star" title={starTag}>
@@ -332,6 +488,53 @@ function ProductCard({
           <div className="bs-pcard__action">
             {unavailable ? (
               <span className="bs-pcard__na">Unavailable</span>
+            ) : hasVariants ? (
+              variantDistinct === 1 && variantSingleLine ? (
+                <div className="bs-stepper" role="group" aria-label="Quantity">
+                  <button
+                    type="button"
+                    className="bs-stepper__btn bs-stepper__btn--minus"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setQty(variantSingleLine.id, variantSingleQty - 1);
+                    }}
+                    aria-label="Decrease"
+                  >
+                    <Minus size={16} strokeWidth={2.5} aria-hidden />
+                  </button>
+                  <span className="bs-stepper__qty">{variantSingleQty}</span>
+                  <button
+                    type="button"
+                    className="bs-stepper__btn bs-stepper__btn--plus"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setQty(variantSingleLine.id, variantSingleQty + 1);
+                    }}
+                    aria-label="Increase"
+                  >
+                    <Plus size={16} strokeWidth={2.5} aria-hidden />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="bs-pcard__add bs-ripple"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const el = e.currentTarget;
+                    el.classList.add("bs-bounce");
+                    window.setTimeout(() => el.classList.remove("bs-bounce"), 400);
+                    openVariantFlow(e);
+                  }}
+                >
+                  ADD
+                  {variantTotalQty > 0 && variantDistinct > 1 ? (
+                    <span className="bs-pcard__add-count" aria-label={`${variantTotalQty} in cart`}>
+                      {variantTotalQty > 9 ? "9+" : variantTotalQty}
+                    </span>
+                  ) : null}
+                </button>
+              )
             ) : inCart && line ? (
               <div className="bs-stepper" role="group" aria-label="Quantity">
                 <button
@@ -390,17 +593,34 @@ function productCardPropsEqual(prev, next) {
   const imgA = String(prev.p?.imageUrl ?? prev.p?.image ?? "");
   const imgB = String(next.p?.imageUrl ?? next.p?.image ?? "");
   if (imgA !== imgB) return false;
-  const ma = prev.meta ?? getProductOfferMeta(prev.p);
-  const mb = next.meta ?? getProductOfferMeta(next.p);
+  const ma = prev.meta ?? getBuyerProductCardOfferMeta(/** @type {Record<string, unknown>} */ (prev.p || {}));
+  const mb = next.meta ?? getBuyerProductCardOfferMeta(/** @type {Record<string, unknown>} */ (next.p || {}));
   if (ma.price !== mb.price || ma.hasDiscount !== mb.hasDiscount) return false;
+  if (Boolean(ma.showFrom) !== Boolean(mb.showFrom)) return false;
   if (Number(ma.originalPrice) !== Number(mb.originalPrice)) return false;
   if (String(ma.offerLabel ?? "") !== String(mb.offerLabel ?? "")) return false;
+  const po = /** @type {Record<string, unknown>} */ (prev.p || {});
+  const pn = /** @type {Record<string, unknown>} */ (next.p || {});
+  if (String(po.pricingMode ?? "") !== String(pn.pricingMode ?? "")) return false;
+  if (getVariantGroupBadgeText(prev.p) !== getVariantGroupBadgeText(next.p)) return false;
   if (isProductUnavailable(prev.p) !== isProductUnavailable(next.p)) return false;
   const la = prev.line;
   const lb = next.line;
   if ((la?.id ?? "") !== (lb?.id ?? "")) return false;
   if (Number(la?.qty) !== Number(lb?.qty)) return false;
-  if (prev.onOpenDetail !== next.onOpenDetail || prev.addItem !== next.addItem || prev.setQty !== next.setQty) return false;
+  const vsA = prev.variantSummary;
+  const vsB = next.variantSummary;
+  if (Number(vsA?.totalQty ?? -1) !== Number(vsB?.totalQty ?? -1)) return false;
+  if (Number(vsA?.distinctVariants ?? -1) !== Number(vsB?.distinctVariants ?? -1)) return false;
+  if ((vsA?.singleLine?.id ?? "") !== (vsB?.singleLine?.id ?? "")) return false;
+  if (Number(vsA?.singleLine?.qty ?? -1) !== Number(vsB?.singleLine?.qty ?? -1)) return false;
+  if (
+    prev.onOpenDetail !== next.onOpenDetail ||
+    prev.addItem !== next.addItem ||
+    prev.setQty !== next.setQty ||
+    prev.onOpenVariantSheet !== next.onOpenVariantSheet
+  )
+    return false;
   return true;
 }
 

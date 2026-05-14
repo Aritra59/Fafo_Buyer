@@ -43,10 +43,59 @@ import { LazyImage } from "../ui/LazyImage";
 import ProductCard from "./ProductCard";
 import ComboCard from "./ComboCard";
 import ItemDetailModal from "./ItemDetailModal";
+import ProductVariantSheet from "./ProductVariantSheet";
+import ComboVariantSheet from "./ComboVariantSheet";
 import StorefrontAdRail from "../StorefrontAdRail";
 import "../../styles/buyerShop.css";
+import {
+  getProductVariantSearchBlob,
+  getBuyerProductCardOfferMeta,
+  productHasSelectableVariants,
+} from "../../utils/productVariants";
 
-function BuyerMenuHierarchyInner({ tree, sellerId, lineById, addItem, setQty, onOpenProductDetail }) {
+/**
+ * @param {unknown[]} lines
+ * @param {string} sellerId
+ * @param {string} productId
+ */
+function summarizeVariantCartLines(lines, sellerId, productId) {
+  const pid = String(productId);
+  const relevant = (lines || []).filter(
+    (l) =>
+      l &&
+      String(/** @type {Record<string, unknown>} */ (l).sellerId || "") === String(sellerId || "") &&
+      String(/** @type {Record<string, unknown>} */ (l).productId || "") === pid &&
+      /** @type {Record<string, unknown>} */ (l).variantId != null &&
+      String(/** @type {Record<string, unknown>} */ (l).variantId).trim() !== ""
+  );
+  let totalQty = 0;
+  const byVid = new Map();
+  for (const l of relevant) {
+    const o = /** @type {Record<string, unknown>} */ (l);
+    const q = Math.max(0, Math.floor(Number(o.qty) || 0));
+    totalQty += q;
+    const vid = String(o.variantId);
+    byVid.set(vid, (byVid.get(vid) || 0) + q);
+  }
+  const distinctVariants = byVid.size;
+  let singleLine = null;
+  if (distinctVariants === 1 && relevant.length > 0) {
+    singleLine = /** @type {Record<string, unknown>} */ (relevant[0]);
+  }
+  return { totalQty, distinctVariants, singleLine };
+}
+
+function BuyerMenuHierarchyInner({
+  tree,
+  sellerId,
+  lineById,
+  lines,
+  addItem,
+  setQty,
+  onOpenProductDetail,
+  variantSummaryByProductId,
+  onOpenVariantSheet,
+}) {
   if (!tree?.length) return null;
   return (
     <>
@@ -76,7 +125,16 @@ function BuyerMenuHierarchyInner({ tree, sellerId, lineById, addItem, setQty, on
                     {ic.list.map((p) => {
                       const pr = /** @type {Record<string, unknown>} */ (p);
                       const pid = pr.id != null ? String(pr.id) : "";
-                      const meta = getProductOfferMeta(pr);
+                      const slotMeta = getProductOfferMeta(pr);
+                      const hpv = productHasSelectableVariants(pr);
+                      const vs = hpv ? variantSummaryByProductId.get(pid) : undefined;
+                      const cardLine =
+                        hpv && vs && vs.distinctVariants === 1 && vs.singleLine
+                          ? vs.singleLine
+                          : hpv
+                            ? null
+                            : lineById.get(pid);
+                      const meta = getBuyerProductCardOfferMeta(pr);
                       return (
                         <ProductCard
                           key={pid}
@@ -85,9 +143,11 @@ function BuyerMenuHierarchyInner({ tree, sellerId, lineById, addItem, setQty, on
                           sellerId={sellerId}
                           addItem={addItem}
                           setQty={setQty}
-                          line={lineById.get(pid)}
-                          categoryLabel={menuSlotLabel(getProductMenuSlot(pr, meta))}
+                          line={cardLine ?? undefined}
+                          categoryLabel={menuSlotLabel(getProductMenuSlot(pr, slotMeta))}
                           onOpenDetail={onOpenProductDetail}
+                          variantSummary={hpv ? vs : null}
+                          onOpenVariantSheet={onOpenVariantSheet}
                           compact
                         />
                       );
@@ -165,6 +225,8 @@ function productMatchesQuery(p, q) {
   )
     return true;
   if (name.includes(t) || cat.includes(t) || tags.includes(t)) return true;
+  const variantBlob = getProductVariantSearchBlob(o);
+  if (variantBlob && haystackHit(variantBlob)) return true;
   const it = canonicalItemTypeLabel(/** @type {Record<string, unknown>} */ (p));
   if (it !== "Other") {
     const itl = String(it).toLowerCase();
@@ -357,6 +419,8 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
   const [products, setProducts] = useState([]);
   const [activeProduct, setActiveProduct] = useState(null);
   const [activeProductMeta, setActiveProductMeta] = useState(null);
+  const [variantSheetProduct, setVariantSheetProduct] = useState(null);
+  const [comboVariantSheetCombo, setComboVariantSheetCombo] = useState(null);
 
   const [rawMenuGroups, setRawMenuGroups] = useState(
     /** @type {import("../../services/menuGroupService").MenuGroupDoc[]} */ ([])
@@ -729,6 +793,34 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
     return m;
   }, [lines, sellerId]);
 
+  const variantSummaryByProductId = useMemo(() => {
+    const m = new Map();
+    for (const p of sessionBaseProducts) {
+      const po = /** @type {Record<string, unknown>} */ (p);
+      const id = po.id != null ? String(po.id) : "";
+      if (!id || !productHasSelectableVariants(po)) continue;
+      m.set(id, summarizeVariantCartLines(lines, sellerId, id));
+    }
+    return m;
+  }, [sessionBaseProducts, lines, sellerId]);
+
+  const openVariantSheetForProduct = useCallback((product) => {
+    setVariantSheetProduct(product);
+  }, []);
+
+  const itemDetailLine = useMemo(() => {
+    if (!activeProduct?.id) return null;
+    const pid = String(activeProduct.id);
+    if (productHasSelectableVariants(/** @type {Record<string, unknown>} */ (activeProduct))) {
+      const sm = variantSummaryByProductId.get(pid);
+      if (sm && sm.distinctVariants === 1 && sm.singleLine) return sm.singleLine;
+      return null;
+    }
+    return lineById.get(pid) ?? null;
+  }, [activeProduct, lineById, variantSummaryByProductId]);
+
+  const itemDetailLineId = itemDetailLine?.id != null ? String(itemDetailLine.id) : activeProduct?.id != null ? String(activeProduct.id) : "";
+
   useEffect(() => {
     if (!sellerId) return undefined;
     const unsub = subscribeSellerById(
@@ -1020,6 +1112,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
                     setQty={setQty}
                     line={lineById.get(`combo_${c.id}`)}
                     productById={productByIdForCollage}
+                    onComboAddIntent={(combo) => setComboVariantSheetCombo(combo)}
                     compact
                     layout="rail"
                   />
@@ -1050,6 +1143,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
                     setQty={setQty}
                     line={lineById.get(`combo_${c.id}`)}
                     productById={productByIdForCollage}
+                    onComboAddIntent={(combo) => setComboVariantSheetCombo(combo)}
                     compact
                     layout="rail"
                   />
@@ -1081,9 +1175,12 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
             tree={buyerMenuTree}
             sellerId={sellerId}
             lineById={lineById}
+            lines={lines}
             addItem={addItem}
             setQty={setQty}
             onOpenProductDetail={openProductDetail}
+            variantSummaryByProductId={variantSummaryByProductId}
+            onOpenVariantSheet={openVariantSheetForProduct}
           />
         </section>
       ) : !showUnavailable && !showProductSkeleton && !productsLoading && sessionResolved.mode !== "combosOnly" && debouncedSearch.trim() && productsToRender.length === 0 && sessionBaseProducts.length > 0 ? (
@@ -1124,8 +1221,17 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
         open={Boolean(activeProduct)}
         product={activeProduct}
         meta={activeProductMeta}
-        line={activeProduct?.id != null ? lineById.get(String(activeProduct.id)) : null}
-        lineId={activeProduct?.id != null ? String(activeProduct.id) : ""}
+        line={itemDetailLine}
+        lineId={itemDetailLineId}
+        isVariantProduct={
+          activeProduct ? productHasSelectableVariants(/** @type {Record<string, unknown>} */ (activeProduct)) : false
+        }
+        onChooseOptions={() => {
+          const p = activeProduct;
+          setActiveProduct(null);
+          setActiveProductMeta(null);
+          if (p) setVariantSheetProduct(p);
+        }}
         onClose={() => {
           setActiveProduct(null);
           setActiveProductMeta(null);
@@ -1149,6 +1255,25 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
           });
         }}
       />
+      {variantSheetProduct ? (
+        <ProductVariantSheet
+          open
+          product={variantSheetProduct}
+          sellerId={sellerId}
+          onClose={() => setVariantSheetProduct(null)}
+          onAddToCart={(item) => addItem(item)}
+        />
+      ) : null}
+      {comboVariantSheetCombo ? (
+        <ComboVariantSheet
+          open
+          combo={comboVariantSheetCombo}
+          sellerId={sellerId}
+          productById={productLookupMap}
+          onClose={() => setComboVariantSheetCombo(null)}
+          onConfirmAdd={(_picks, item) => addItem(item)}
+        />
+      ) : null}
     </div>
   );
 }
