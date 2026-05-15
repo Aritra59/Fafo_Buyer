@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useAuthProfile } from "../../context/AuthProfileContext";
 import { useBuyerOrders } from "../../context/BuyerOrdersContext";
 import { getRecentShops, getGuestProfile } from "../../utils/guestProfile";
@@ -13,7 +13,6 @@ import OtpDiscoverModal from "../../components/OtpDiscoverModal";
  * Guest + signed-in buyer home: orders, track links, recents, app shortcuts.
  */
 export default function GuestDashboardPage() {
-  const navigate = useNavigate();
   const { user, profileComplete, loading: authLoading } = useAuthProfile();
   const { orders, loading: ordersLoading, error: ordersError } = useBuyerOrders();
   const guest = getGuestProfile();
@@ -27,8 +26,6 @@ export default function GuestDashboardPage() {
       return tb - ta;
     });
   }, [orders]);
-  const latest = sorted[0];
-
   if (authLoading) {
     return (
       <div className="nb-page nb-page--center">
@@ -109,19 +106,12 @@ export default function GuestDashboardPage() {
             );
           })}
         </ul>
-        {latest ? (
-          <div style={{ marginTop: "1rem" }}>
-            <Button
-              type="button"
-              onClick={() => {
-                const p = String(latest.buyerPhone || guest?.phone || "");
-                const phoneQ = p ? `?phone=${encodeURIComponent(p)}` : "";
-                navigate(`/order/${encodeURIComponent(latest.id)}/track${phoneQ}`);
-              }}
-            >
-              Open latest order live
-            </Button>
-          </div>
+        {sorted.length > 0 ? (
+          <p className="nb-muted" style={{ marginTop: "1rem" }}>
+            <Link className="nb-inline-link" to="/track/orders">
+              View all orders to track
+            </Link>
+          </p>
         ) : null}
       </section>
 

@@ -140,7 +140,7 @@ export default function ExplorePage() {
       return tb - ta;
     });
   }, [orders]);
-  const latest = sortedOrders[0];
+  const hasOrders = sortedOrders.length > 0;
 
   useEffect(() => {
     const q = debouncedSearch.trim();
@@ -193,6 +193,15 @@ export default function ExplorePage() {
         <div className="nb-home-header__actions">
           {user ? (
             <>
+              {hasOrders && !ordersLoading ? (
+                <Link
+                  className="nb-explore-order-chip"
+                  to="/track/orders"
+                  aria-label={`Track ${sortedOrders.length} order${sortedOrders.length === 1 ? "" : "s"}`}
+                >
+                  Track{sortedOrders.length > 1 ? ` (${sortedOrders.length})` : ""}
+                </Link>
+              ) : null}
               <Link className="nb-pill-link nb-pill-link--neon" to="/profile">
                 Profile
               </Link>
@@ -205,21 +214,14 @@ export default function ExplorePage() {
             </>
           ) : (
             <div className="nb-home-header__guest-row">
-              {latest && !ordersLoading ? (
-                <button
-                  type="button"
+              {hasOrders && !ordersLoading ? (
+                <Link
                   className="nb-explore-order-chip"
-                  aria-label={`Track order — ${String(latest.sellerName || "recent order")}`}
-                  onClick={() => {
-                    const p = String(latest.buyerPhone || "");
-                    const phoneQ = p ? `?phone=${encodeURIComponent(p)}` : "";
-                    navigate(
-                      `/order/${encodeURIComponent(latest.id)}/track${phoneQ}`
-                    );
-                  }}
+                  to="/track/orders"
+                  aria-label={`Track ${sortedOrders.length} order${sortedOrders.length === 1 ? "" : "s"}`}
                 >
-                  Track
-                </button>
+                  Track{sortedOrders.length > 1 ? ` (${sortedOrders.length})` : ""}
+                </Link>
               ) : null}
               <Link className="nb-pill-link nb-pill-link--ghost" to="/login">
                 Sign in
@@ -228,36 +230,6 @@ export default function ExplorePage() {
           )}
         </div>
       </header>
-
-      {latest && !ordersLoading && user ? (
-        <section className="nb-section">
-          <h2 className="nb-section-title nb-section-title--neon">Latest order</h2>
-          <Card className="nb-order-hero nb-card--neon">
-            <p className="nb-order-hero__name">{String(latest.sellerName || "Order")}</p>
-            <p className="nb-order-hero__meta nb-muted">
-              {latest.id} ·{" "}
-              {typeof latest.total === "number" ? `₹${Number(latest.total).toFixed(0)}` : "—"} ·{" "}
-              {String(latest.status || "new")}
-            </p>
-            <div className="nb-order-hero__row">
-              <Button
-                type="button"
-                onClick={() => {
-                  const p = String(latest.buyerPhone || "");
-                  const phoneQ = p
-                    ? `?phone=${encodeURIComponent(p)}`
-                    : "";
-                  navigate(
-                    `/order/${encodeURIComponent(latest.id)}/track${phoneQ}`
-                  );
-                }}
-              >
-                Live tracking
-              </Button>
-            </div>
-          </Card>
-        </section>
-      ) : null}
 
       <label className="nb-field nb-search">
         <span className="nb-field__label">Search shops &amp; dishes</span>

@@ -17,6 +17,7 @@ import OrderTrackPage from "./pages/Public/OrderTrackPage";
 import GuestDashboardPage from "./pages/Public/GuestDashboardPage";
 import ExplorePage from "./pages/Home/ExplorePage";
 import TrackLookupPage from "./pages/Public/TrackLookupPage";
+import TrackOrdersListPage from "./pages/Public/TrackOrdersListPage";
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
               <Route path="/dashboard" element={<GuestDashboardPage />} />
               <Route path="/explore" element={<ExplorePage />} />
               <Route path="/track" element={<TrackLookupPage />} />
+              <Route path="/track/orders" element={<TrackOrdersListPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route element={<RequireAuth />}>
                 <Route path="onboarding" element={<OnboardingPage />} />

@@ -11,7 +11,6 @@ import {
   normalizeIndiaPhone,
 } from "../../utils/format";
 import { validateAndPriceOrderLines } from "../../utils/validateOrderPrices";
-import { canPlaceOrderByThrottle, markOrderPlacedForThrottle } from "../../utils/orderThrottle";
 import {
   getGuestProfile,
   getOrderSourceFromSession,
@@ -204,13 +203,6 @@ export default function CartPage() {
     }
 
     const buyerPhoneE164 = normalizeIndiaPhone(phone) || phone.trim();
-    const throttle = canPlaceOrderByThrottle(buyerPhoneE164);
-    if (!throttle.ok) {
-      setError(
-        `Please wait ${throttle.waitSec} seconds before placing another order.`
-      );
-      return;
-    }
 
     setSending(true);
     try {
@@ -289,7 +281,6 @@ export default function CartPage() {
       const orderDocId = orderResult?.id || "";
       const orderId = orderResult?.orderId || orderDocId;
 
-      markOrderPlacedForThrottle(buyerPhoneE164);
       setCheckoutOpen(false);
       clear();
       navigate("/order/thanks", {
@@ -605,70 +596,11 @@ export default function CartPage() {
                 ) : null}
               </div>
               {paymentMode === "upi" && canUpi ? (
-                <div className="nb-pay-upi-hint" style={{ marginTop: "0.5rem" }}>
-                  <p className="nb-muted nb-pay-upi-hint__text">
-                    Pay with the seller&apos;s saved UPI ID. Tap <strong>Open UPI</strong> to launch your app with
-                    this cart total. After paying, send your payment proof on WhatsApp so the shop can match it.
-                  </p>
-                  <div className="nb-pay-upi-actions">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="nb-btn--sm"
-                      onClick={async () => {
-                        if (!sellerId) return;
-                        try {
-                          const seller = await getSellerById(sellerId);
-                          const upiId = String(seller?.upiId || seller?.upi_id || "").trim();
-                          if (!upiId) {
-                            setError("UPI ID not available for this shop.");
-                            return;
-                          }
-                          const n = String(seller?.shopName || seller?.name || "Shop");
-                          const uri = buildUpiPayUri({
-                            pa: upiId,
-                            pn: String(seller?.upiName || seller?.upi_name || n),
-                            am: total,
-                            tn: `FaFo ${n}`,
-                          });
-                          tryOpenUpiUri(uri);
-                        } catch (e) {
-                          setError(e instanceof Error ? e.message : "Could not open UPI.");
-                        }
-                      }}
-                    >
-                      Open UPI
-                    </Button>
-                    <Button type="button" variant="ghost" className="nb-btn--sm" onClick={handleCopyUpi}>
-                      Copy UPI ID
-                    </Button>
-                    {String(liveSeller?.whatsapp || liveSeller?.phone || "").trim() ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="nb-btn--sm"
-                        onClick={() => {
-                          setError("");
-                          const raw = String(liveSeller?.whatsapp || liveSeller?.phone || "");
-                          const sn = String(liveSeller?.shopName || liveSeller?.name || "this shop");
-                          const msg = `Hi — UPI payment proof for FaFo at ${sn}.
-
-Cart total: ₹${Number(total).toFixed(0)}
-(I'm about to place / have placed the order in the app — sending payment screenshot.)
-
-Thank you.`;
-                          try {
-                            openWhatsAppOrder(raw, msg);
-                          } catch (e) {
-                            setError(e instanceof Error ? e.message : "WhatsApp not available.");
-                          }
-                        }}
-                      >
-                        Send payment proof on WhatsApp
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
+                <p className="nb-muted nb-pay-upi-hint__text" style={{ marginTop: "0.5rem" }}>
+                  Pay with the seller&apos;s saved UPI ID — tap <strong>Pay via UPI &amp; place order</strong> to
+                  open your UPI app with this cart total. After paying, send your payment proof on WhatsApp so the
+                  shop can match it.
+                </p>
               ) : null}
             </Card>
 
@@ -683,6 +615,37 @@ Thank you.`;
                     ? "Pay via UPI & place order"
                     : "Place order"}
               </Button>
+              {paymentMode === "upi" && canUpi ? (
+                <>
+                  <Button type="button" variant="ghost" onClick={handleCopyUpi}>
+                    Copy UPI ID
+                  </Button>
+                  {String(liveSeller?.whatsapp || liveSeller?.phone || "").trim() ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setError("");
+                        const raw = String(liveSeller?.whatsapp || liveSeller?.phone || "");
+                        const sn = String(liveSeller?.shopName || liveSeller?.name || "this shop");
+                        const msg = `Hi — UPI payment proof for FaFo at ${sn}.
+
+Cart total: ₹${Number(total).toFixed(0)}
+(I'm about to place / have placed the order in the app — sending payment screenshot.)
+
+Thank you.`;
+                        try {
+                          openWhatsAppOrder(raw, msg);
+                        } catch (e) {
+                          setError(e instanceof Error ? e.message : "WhatsApp not available.");
+                        }
+                      }}
+                    >
+                      Send payment proof on WhatsApp
+                    </Button>
+                  ) : null}
+                </>
+              ) : null}
               <Button type="button" variant="ghost" onClick={() => setCheckoutOpen(false)}>
                 Back to cart
               </Button>

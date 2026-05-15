@@ -163,6 +163,10 @@ a:hover {
   max-width: min(100vw - 2rem, 22rem);
 }
 
+a.nb-explore-order-chip {
+  text-decoration: none;
+}
+
 .nb-explore-order-chip {
   display: inline-flex;
   align-items: center;
