@@ -18,12 +18,14 @@ import GuestDashboardPage from "./pages/Public/GuestDashboardPage";
 import ExplorePage from "./pages/Home/ExplorePage";
 import TrackLookupPage from "./pages/Public/TrackLookupPage";
 import TrackOrdersListPage from "./pages/Public/TrackOrdersListPage";
+import RecaptchaHost from "./components/RecaptchaHost";
 
 export default function App() {
   return (
     <AuthProfileProvider>
       <BuyerOrdersProvider>
         <CartProvider>
+          <RecaptchaHost />
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Navigate to="/explore" replace />} />

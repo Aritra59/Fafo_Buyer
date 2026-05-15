@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  RECAPTCHA_CONTAINER_ID,
   clearRecaptcha,
   getFirebaseAuthMessage,
   sendOtp,
+  warmRecaptcha,
 } from "../services/authService";
 import { normalizeIndiaPhone } from "../utils/format";
 import { Button } from "./ui/Button";
@@ -49,6 +49,7 @@ export default function OtpDiscoverModal({ open, onClose, initialPhone = "", var
     }
     const p = String(initialPhone || "").trim();
     setPhone(p);
+    warmRecaptcha();
   }, [open, initialPhone]);
 
   if (!open) return null;
@@ -108,6 +109,7 @@ export default function OtpDiscoverModal({ open, onClose, initialPhone = "", var
     setError("");
     setBusy(true);
     try {
+      clearRecaptcha();
       confirmationRef.current = await sendOtp(e164);
     } catch (err) {
       setError(getFirebaseAuthMessage(err, "Failed to resend OTP."));
@@ -199,7 +201,6 @@ export default function OtpDiscoverModal({ open, onClose, initialPhone = "", var
             </form>
           )}
 
-          <div id={RECAPTCHA_CONTAINER_ID} className="nb-recaptcha-host" aria-hidden="true" />
         </Card>
       </div>
     </div>

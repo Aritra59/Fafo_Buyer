@@ -3,19 +3,30 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   signInWithPopup,
+  signOut,
 } from "firebase/auth";
 import { auth } from "../firebase/config";
 
-/** DOM id; must match `<div id="...">` on the login page. */
+/** DOM id; must match `<div id="...">` in RecaptchaHost. */
 export const RECAPTCHA_CONTAINER_ID = "recaptcha-container";
 
 /** @type {import("firebase/auth").RecaptchaVerifier | null} */
 let recaptchaVerifier = null;
+/** @type {Promise<import("firebase/auth").RecaptchaVerifier> | null} */
+let recaptchaSetupPromise = null;
 
-function clearRecaptchaDom() {
+/**
+ * Replace the container node so Google's widget cannot stick to a stale element.
+ */
+function resetRecaptchaContainerDom() {
   if (typeof document === "undefined") return;
   const el = document.getElementById(RECAPTCHA_CONTAINER_ID);
-  if (el) el.innerHTML = "";
+  if (!el?.parentNode) return;
+  const fresh = document.createElement("div");
+  fresh.id = RECAPTCHA_CONTAINER_ID;
+  fresh.className = el.className || "nb-recaptcha-host";
+  fresh.setAttribute("aria-hidden", "true");
+  el.parentNode.replaceChild(fresh, el);
 }
 
 export function clearRecaptcha() {
@@ -25,35 +36,90 @@ export function clearRecaptcha() {
     // ignore
   }
   recaptchaVerifier = null;
-  clearRecaptchaDom();
+  recaptchaSetupPromise = null;
+  resetRecaptchaContainerDom();
+}
+
+function isRecaptchaReuseError(err) {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /already been rendered/i.test(msg);
+}
+
+function isRetriablePhoneAuthError(err) {
+  const code = getErrorCode(err);
+  if (code && RETRIABLE_PHONE_AUTH_CODES.has(code)) return true;
+  return isRecaptchaReuseError(err);
 }
 
 /**
- * Returns the singleton RecaptchaVerifier. Creates at most one instance per #recaptcha-container
- * until clearRecaptcha(). Call from sendOtp (user gesture), not on React mount, to avoid
- * duplicate render / StrictMode double-init.
+ * @param {boolean} [force] When true, always tear down and create a fresh verifier.
  * @returns {Promise<import("firebase/auth").RecaptchaVerifier>}
  */
-export async function setupRecaptcha() {
+export async function setupRecaptcha(force = false) {
   if (typeof document === "undefined") {
     throw new Error("Phone sign-in is only available in the browser.");
   }
-  if (recaptchaVerifier) {
+  if (!force && recaptchaVerifier) {
     return recaptchaVerifier;
   }
-  const el = document.getElementById(RECAPTCHA_CONTAINER_ID);
-  if (!el) {
-    throw new Error(
-      "reCAPTCHA container is missing. Add: <div id=\"recaptcha-container\"></div>."
-    );
+  if (!force && recaptchaSetupPromise) {
+    return recaptchaSetupPromise;
   }
-  clearRecaptchaDom();
-  recaptchaVerifier = new RecaptchaVerifier(auth, RECAPTCHA_CONTAINER_ID, {
-    size: "invisible",
+
+  const run = async () => {
+    clearRecaptcha();
+    const el = document.getElementById(RECAPTCHA_CONTAINER_ID);
+    if (!el) {
+      throw new Error(
+        'reCAPTCHA container is missing. Add <RecaptchaHost /> near the app root.',
+      );
+    }
+    const verifier = new RecaptchaVerifier(auth, RECAPTCHA_CONTAINER_ID, {
+      size: "invisible",
+    });
+    try {
+      await verifier.render();
+    } catch (err) {
+      try {
+        verifier.clear();
+      } catch {
+        // ignore
+      }
+      if (isRecaptchaReuseError(err)) {
+        resetRecaptchaContainerDom();
+        const el2 = document.getElementById(RECAPTCHA_CONTAINER_ID);
+        if (!el2) throw err;
+        const verifier2 = new RecaptchaVerifier(auth, RECAPTCHA_CONTAINER_ID, {
+          size: "invisible",
+        });
+        await verifier2.render();
+        recaptchaVerifier = verifier2;
+        return verifier2;
+      }
+      throw err;
+    }
+    recaptchaVerifier = verifier;
+    return verifier;
+  };
+
+  recaptchaSetupPromise = run().finally(() => {
+    recaptchaSetupPromise = null;
   });
-  await recaptchaVerifier.render();
-  return recaptchaVerifier;
+  return recaptchaSetupPromise;
 }
+
+/**
+ * Pre-render invisible reCAPTCHA so the first "Send OTP" is faster.
+ * Safe to call on login mount / discover modal open.
+ */
+export function warmRecaptcha() {
+  if (typeof document === "undefined") return;
+  if (recaptchaVerifier || recaptchaSetupPromise) return;
+  setupRecaptcha().catch(() => {
+    clearRecaptcha();
+  });
+}
+
 const RETRIABLE_PHONE_AUTH_CODES = new Set([
   "auth/invalid-app-credential",
   "auth/captcha-check-failed",
@@ -89,6 +155,9 @@ export function getFirebaseAuthMessage(err, fallback = "Something went wrong. Tr
     "auth/quota-exceeded": "SMS quota for this project was exceeded. Try again later.",
   };
   if (code && messages[code]) return messages[code];
+  if (isRecaptchaReuseError(err)) {
+    return "SMS verification reset. Tap Send OTP again.";
+  }
   if (err instanceof Error && err.message) return err.message;
   return fallback;
 }
@@ -109,22 +178,20 @@ if (import.meta.env.DEV) {
  */
 export async function sendOtp(e164Phone, opts = {}) {
   const { retryOnVerifierError = true } = opts;
-  const v = await setupRecaptcha();
-  const send = () => signInWithPhoneNumber(auth, e164Phone, v);
+
+  async function attempt(forceVerifier) {
+    const v = await setupRecaptcha(forceVerifier);
+    return signInWithPhoneNumber(auth, e164Phone, v);
+  }
+
   try {
-    return await send();
+    return await attempt(false);
   } catch (err) {
-    const code = getErrorCode(err);
-    if (
-      retryOnVerifierError &&
-      code &&
-      RETRIABLE_PHONE_AUTH_CODES.has(code)
-    ) {
-      clearRecaptcha();
-      const v2 = await setupRecaptcha();
-      return signInWithPhoneNumber(auth, e164Phone, v2);
+    if (!retryOnVerifierError || !isRetriablePhoneAuthError(err)) {
+      throw err;
     }
-    throw err;
+    clearRecaptcha();
+    return attempt(true);
   }
 }
 
@@ -133,4 +200,10 @@ googleProvider.setCustomParameters({ prompt: "select_account" });
 
 export async function signInWithGoogle() {
   return signInWithPopup(auth, googleProvider);
+}
+
+/** Sign out and reset phone-auth widgets for a clean next login. */
+export async function signOutAndClearRecaptcha() {
+  clearRecaptcha();
+  return signOut(auth);
 }

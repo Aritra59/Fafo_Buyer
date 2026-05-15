@@ -1,8 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { signOut } from "firebase/auth";
-import { auth } from "../../firebase/config";
+import { signOutAndClearRecaptcha } from "../../services/authService";
 import { useAuthProfile } from "../../context/AuthProfileContext";
 import { saveUserProfile } from "../../services/userService";
 import { Button } from "../../components/ui/Button";
@@ -94,7 +93,7 @@ export default function ProfilePage() {
   }
 
   async function handleLogout() {
-    await signOut(auth);
+    await signOutAndClearRecaptcha();
     navigate("/login", { replace: true });
   }
 

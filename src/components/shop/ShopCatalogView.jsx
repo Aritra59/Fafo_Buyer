@@ -913,9 +913,7 @@ export default function ShopCatalogView({ sellerId, backTo, backLabel, isPublic 
   const hoursCompact = formatSellerHoursCompact(seller);
 
   const openLabel =
-    !isLive
-      ? { text: "Offline", cls: "bs-pill bs-pill--closed" }
-      : openState === "open"
+    openState === "open"
       ? { text: "Open", cls: "bs-pill bs-pill--open" }
       : openState === "closed"
         ? { text: "Closed", cls: "bs-pill bs-pill--closed" }

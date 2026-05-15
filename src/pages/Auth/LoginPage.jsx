@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
-import { auth } from "../../firebase/config";
 import { useAuthProfile } from "../../context/AuthProfileContext";
 import {
   clearRecaptcha,
   getFirebaseAuthMessage,
   sendOtp,
   signInWithGoogle,
+  signOutAndClearRecaptcha,
+  warmRecaptcha,
 } from "../../services/authService";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -26,13 +26,10 @@ export default function LoginPage() {
   const confirmationRef = useRef(null);
   const lastE164Ref = useRef(null);
 
-  // Unmount only — do not run setupRecaptcha on mount (avoids duplicate widget + StrictMode).
-  useEffect(
-    () => () => {
-      clearRecaptcha();
-    },
-    []
-  );
+  useEffect(() => {
+    warmRecaptcha();
+    return () => clearRecaptcha();
+  }, []);
 
   if (user && profileComplete) {
     return <Navigate to="/explore" replace />;
@@ -97,6 +94,7 @@ export default function LoginPage() {
     setError("");
     setBusy(true);
     try {
+      clearRecaptcha();
       confirmationRef.current = await sendOtp(e164);
     } catch (err) {
       setError(getFirebaseAuthMessage(err, "Failed to resend OTP."));
@@ -119,7 +117,7 @@ export default function LoginPage() {
   }
 
   async function handleSignOut() {
-    await signOut(auth);
+    await signOutAndClearRecaptcha();
     confirmationRef.current = null;
     resetPhoneFlow();
   }
@@ -198,11 +196,6 @@ export default function LoginPage() {
           </>
         )}
 
-        <div
-          id="recaptcha-container"
-          className="nb-recaptcha-host"
-          aria-hidden="true"
-        />
       </Card>
 
       {user && !profileComplete ? (
